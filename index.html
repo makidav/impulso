@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
 <title>Agenda Impulso Académico</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -63,6 +64,12 @@ h3{font-size:1.05rem;font-weight:800}
 .tab[aria-current="page"]{background:var(--ink);color:var(--surface)}
 .badge{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--bad);color:#fff;font-size:.72rem;display:inline-grid;place-items:center;font-weight:900}
 .logout{margin-left:auto}
+.sync{margin-left:auto;border:0;border-radius:999px;padding:6px 12px;font-weight:800;font-size:.78rem;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;background:var(--ok-soft);color:var(--ok)}
+.sync::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.sync.saving{background:var(--sun-soft);color:var(--ink)}
+.sync.warn{background:var(--warn-soft);color:var(--warn)}
+.sync.bad{background:var(--bad);color:#fff}
+.sync + .logout{margin-left:0}
 @media (max-width:820px){.tabs{order:3;flex-basis:100%}.top .wrap{row-gap:6px}}
 
 /* ---------- generic ---------- */
@@ -700,7 +707,7 @@ function localDB(){
 }
 function dbErr(e){
   const c = e && e.code;
-  if (c==='invalid_argument') return S.local ? 'No se encontró el registro; recarga la página e inténtalo de nuevo.' : 'No se pudo guardar: tu cuenta no tiene permiso de edición en esta página.';
+  if (c==='invalid_argument') return (S.local || (S.db && S.db.gh)) ? 'No se encontró el registro; recarga la página e inténtalo de nuevo.' : 'No se pudo guardar: tu cuenta no tiene permiso de edición en esta página.';
   if (c==='quota_exceeded' && S.local) return 'El navegador ya no tiene espacio para guardar. Descarga un respaldo y avísame para revisarlo.';
   if (c==='quota_exceeded') return 'Se llenó el espacio de la base de datos. Descarga un respaldo y borra registros antiguos.';
   if (c==='resource_exhausted') return 'Demasiadas operaciones seguidas. Espera unos segundos e inténtalo de nuevo.';
@@ -839,6 +846,8 @@ async function doLogin(e){
   const lock = lsGet('ia-lock') || { fails:0, until:0 };
   if (lock.until > Date.now()) return;
   $('#lg-btn').disabled = true; errEl.textContent = 'Verificando…';
+  /* Con GitHub: traer la versión más reciente (contraseña incluida) antes de comprobar; si no hay internet, se usa la copia local */
+  if (S.db && S.db.gh){ await Promise.race([S.db.syncNow(), new Promise(r => setTimeout(r, 6000))]); }
   let ok = false;
   try {
     if (!S.auth){
@@ -875,14 +884,271 @@ let lastTouch = 0;
 ['click','keydown'].forEach(ev => document.addEventListener(ev, () => { if (S.logged && Date.now()-lastTouch > 60e3){ lastTouch = Date.now(); touchSession(); } }, true));
 
 /* =====================================================================
+   ALMACENAMIENTO EN GITHUB (repositorio privado)
+   - Cada cambio se guarda primero en este navegador (caché + cola) y luego
+     se sube como un commit a data/agenda.json. Nada se pierde si se va el internet.
+   - Si otro dispositivo guardó antes, se descarga su versión y se vuelven a
+     aplicar encima los cambios pendientes (por documento), sin pisarlos.
+   ===================================================================== */
+const GH_FILES = {".github/workflows/respaldo-correo.yml": "# Respaldo por correo de la Agenda Impulso Académico.\n# - Lunes 7:00 am (hora de la Ciudad de México): respaldo semanal, siempre.\n# - Todos los días 9:00 pm: respaldo solo si ese día hubo cambios en la agenda.\n# - Manual: desde la agenda (Ajustes → Enviar respaldo ahora) o desde la pestaña Actions.\n# Ciudad de México está en UTC-6 todo el año (sin horario de verano desde 2022).\nname: Respaldo por correo\n\non:\n  schedule:\n    - cron: '0 13 * * 1'\n    - cron: '0 3 * * *'\n  workflow_dispatch:\n    inputs:\n      motivo:\n        description: 'Motivo del respaldo'\n        required: false\n        default: 'manual'\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: respaldo-correo\n  cancel-in-progress: false\n\njobs:\n  respaldo:\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n    steps:\n      - name: Descargar datos e historial\n        uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n\n      - name: Enviar respaldo\n        env:\n          SMTP_HOST: ${{ secrets.SMTP_HOST }}\n          SMTP_PORT: ${{ secrets.SMTP_PORT }}\n          SMTP_USER: ${{ secrets.SMTP_USER }}\n          SMTP_PASS: ${{ secrets.SMTP_PASS }}\n          MAIL_TO: ${{ secrets.MAIL_TO }}\n          EVENT_NAME: ${{ github.event_name }}\n          SCHEDULE: ${{ github.event.schedule }}\n          MOTIVO: ${{ github.event.inputs.motivo }}\n          REPO: ${{ github.repository }}\n        run: python3 .github/scripts/enviar_respaldo.py\n", ".github/scripts/enviar_respaldo.py": "#!/usr/bin/env python3\n\"\"\"Envía por correo el respaldo de la Agenda Impulso Académico.\n\nAdjunta:\n  - respaldo-impulso-AAAA-MM-DD.json  (se importa en la agenda: Ajustes → Importar respaldo)\n  - alumnos-AAAA-MM-DD.csv y reservas-AAAA-MM-DD.csv (se abren en Excel)\n\nVariables de entorno (secretos del repositorio):\n  SMTP_USER, SMTP_PASS  obligatorias\n  SMTP_HOST             opcional (por defecto smtp.gmail.com)\n  SMTP_PORT             opcional (por defecto 465; 587 usa STARTTLS)\n  MAIL_TO               opcional (por defecto contacto@impulsoacademico.mx; varios separados por coma)\n\"\"\"\nimport csv, io, json, os, smtplib, ssl, subprocess, sys\nfrom datetime import datetime, timedelta\nfrom email.message import EmailMessage\nfrom zoneinfo import ZoneInfo\n\nDATA = 'data/agenda.json'\nTZ = ZoneInfo('America/Mexico_City')\nDAILY_CRON = '0 3 * * *'\nDOWS = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom']  # weekday() 0 = lunes\nJS_DOWS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']  # como en la agenda: 0 = domingo\nMES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']\n\n\ndef git(*args):\n    return subprocess.run(['git', *args], capture_output=True, text=True, check=False).stdout.strip()\n\n\ndef fecha(s):\n    if not s:\n        return ''\n    d = datetime.strptime(s[:10], '%Y-%m-%d')\n    return f'{DOWS[d.weekday()]} {d.day} {MES[d.month - 1]}'\n\n\ndef hora(h):\n    h = int(h)\n    return f'{h - 12 if h > 12 else h}{\"pm\" if h >= 12 else \"am\"}'\n\n\ndef horario(slots):\n    by = {}\n    for k in sorted(slots or [], key=lambda k: tuple(map(int, k.split('-')))):\n        d, h = map(int, k.split('-'))\n        by.setdefault(d, []).append(h)\n    parts = []\n    for d, hs in by.items():\n        hs.sort()\n        rangos, ini, prev = [], hs[0], hs[0]\n        for h in hs[1:] + [None]:\n            if h is not None and h == prev + 1:\n                prev = h\n                continue\n            rangos.append(f'{hora(ini)}–{hora(prev + 1)}')\n            if h is not None:\n                ini = prev = h\n        parts.append(f'{JS_DOWS[d]} {\" y \".join(rangos)}')\n    return ', '.join(parts)\n\n\ndef main():\n    now = datetime.now(TZ)\n    hoy = now.strftime('%Y-%m-%d')\n    event = os.environ.get('EVENT_NAME', 'manual')\n    schedule = os.environ.get('SCHEDULE', '')\n    motivo = (os.environ.get('MOTIVO') or '').strip()\n\n    if not os.path.exists(DATA):\n        print('Aún no hay datos (data/agenda.json no existe). No se envía nada.')\n        return 0\n\n    cambios_24h = git('log', '--since=24 hours ago', '--format=%H', '--', DATA).splitlines()\n    cambios_7d = git('log', '--since=7 days ago', '--format=%H', '--', DATA).splitlines()\n    if event == 'schedule' and schedule == DAILY_CRON and not cambios_24h:\n        print('Sin cambios en las últimas 24 horas: no se envía el respaldo diario.')\n        return 0\n\n    user, password = os.environ.get('SMTP_USER', '').strip(), os.environ.get('SMTP_PASS', '').strip()\n    if not user or not password:\n        print('ERROR: faltan los secretos SMTP_USER y SMTP_PASS en Settings → Secrets and variables → Actions.')\n        return 1\n    host = os.environ.get('SMTP_HOST', '').strip() or 'smtp.gmail.com'\n    port = int(os.environ.get('SMTP_PORT', '').strip() or 465)\n    to = [x.strip() for x in (os.environ.get('MAIL_TO', '').strip() or 'contacto@impulsoacademico.mx').split(',') if x.strip()]\n\n    with open(DATA, encoding='utf-8') as f:\n        data = json.load(f)\n    students = data.get('students', {})\n    bookings = data.get('bookings', {})\n    waitlist = data.get('waitlist', {})\n    config = (data.get('config') or {}).get('main', {})\n    plans = config.get('plans', {'basico': {'name': 'Básico'}, 'plus': {'name': 'Plus'}})\n\n    # Respaldo importable (mismo formato que \"Descargar respaldo\" en la agenda; sin la contraseña)\n    respaldo = {'exportedAt': now.isoformat(), 'source': 'github-actions', 'config': config,\n                'students': students, 'bookings': bookings, 'waitlist': waitlist}\n    respaldo_bytes = json.dumps(respaldo, ensure_ascii=False, indent=1).encode('utf-8')\n\n    def nombre(sid):\n        s = students.get(sid) or {}\n        tel = ''.join(c for c in str(s.get('phone', '')) if c.isdigit())\n        return f\"{s.get('name', '(sin nombre)')} {tel[-4:]}\".strip()\n\n    def plan_nombre(p):\n        return (plans.get(p) or {}).get('name', 'Sin plan')\n\n    # CSV de alumnos\n    buf = io.StringIO()\n    w = csv.writer(buf)\n    w.writerow(['Alumno', 'Tutor', 'WhatsApp', 'Plan', 'Alumno desde', 'Activo', 'Notas'])\n    for sid, s in sorted(students.items(), key=lambda x: x[1].get('name', '').lower()):\n        w.writerow([s.get('name', ''), s.get('tutor', ''), s.get('phone', ''), plan_nombre(s.get('plan')),\n                    s.get('since', ''), 'Sí' if s.get('active', True) else 'No', s.get('notes', '')])\n    alumnos_csv = ('﻿' + buf.getvalue()).encode('utf-8')  # BOM para que Excel lea acentos\n\n    # CSV de reservas\n    estados = {'pre': 'Prereserva', 'conf': 'Pagado', 'cancel': 'Cancelada', 'desplazada': 'Desplazada'}\n    tipos = {'impulso': 'Impulso', 'tutoria': 'Tutoría', 'repo': 'Reposición'}\n    buf = io.StringIO()\n    w = csv.writer(buf)\n    w.writerow(['Tipo', 'Alumno', 'Plan', 'Estado', 'Inicio / fecha', 'Fin', 'Horario', 'Pago verificado', 'Monto', 'Notas'])\n    for b in sorted(bookings.values(), key=lambda b: b.get('start') or b.get('date') or ''):\n        es_imp = b.get('type') == 'impulso'\n        w.writerow([tipos.get(b.get('type'), b.get('type')), nombre(b.get('studentId')),\n                    plan_nombre(b.get('plan')) if es_imp else '', estados.get(b.get('status'), b.get('status')),\n                    b.get('start') if es_imp else b.get('date'), b.get('end', '') if es_imp else '',\n                    horario(b.get('slots')) if es_imp else hora(b.get('hour', 0)),\n                    (b.get('paidAt') or '')[:10], b.get('amount', ''), b.get('notes', '')])\n    reservas_csv = ('﻿' + buf.getvalue()).encode('utf-8')\n\n    # Resumen en el cuerpo del correo\n    vigentes = [dict(b, id=k) for k, b in bookings.items() if b.get('type') == 'impulso' and b.get('status') == 'conf'\n                and b.get('start', '') <= hoy <= b.get('end', '')]\n    pre = [b for b in bookings.values() if b.get('status') == 'pre']\n    en7 = (now + timedelta(days=7)).strftime('%Y-%m-%d')\n    terminan = sorted([b for b in vigentes if b.get('end', '') <= en7], key=lambda b: b['end'])\n    renovados = {b.get('renewalOf') for b in bookings.values() if b.get('renewalOf') and b.get('status') != 'cancel'}\n    espera = [x for x in waitlist.values() if x.get('status') == 'activa']\n\n    tipo_txt = {'schedule': 'semanal' if schedule != DAILY_CRON else 'diario (hubo cambios hoy)',\n                'workflow_dispatch': f'manual{\": \" + motivo if motivo and motivo != \"manual\" else \"\"}'}.get(event, event)\n    L = [f'Respaldo {tipo_txt} de la Agenda Impulso Académico',\n         f'Generado: {now.strftime(\"%d/%m/%Y %H:%M\")} (hora de la Ciudad de México)', '',\n         f'Alumnos registrados: {len(students)}',\n         f'Alumnos con plan pagado vigente: {len({b.get(\"studentId\") for b in vigentes})}',\n         f'Prereservas esperando pago: {len(pre)}',\n         f'En lista de espera: {len(espera)}',\n         f'Cambios guardados en las últimas 24 h: {len(cambios_24h)} · últimos 7 días: {len(cambios_7d)}', '']\n    if pre:\n        L.append('PRERESERVAS ESPERANDO PAGO')\n        for b in pre:\n            cuando = f\"Impulso {horario(b.get('slots'))} desde {fecha(b.get('start'))}\" if b.get('type') == 'impulso' \\\n                else f\"Tutoría {fecha(b.get('date'))} {hora(b.get('hour', 0))}\"\n            L.append(f'  • {nombre(b.get(\"studentId\"))}: {cuando}')\n        L.append('')\n    if terminan:\n        L.append('PLANES QUE TERMINAN EN LOS PRÓXIMOS 7 DÍAS')\n        for b in terminan:\n            L.append(f'  • {nombre(b.get(\"studentId\"))}: termina {fecha(b[\"end\"])} · '\n                     f'{\"renovación registrada\" if b.get(\"id\") in renovados else \"sin renovación\"}')\n        L.append('')\n    L += ['ARCHIVOS ADJUNTOS',\n          f'  • respaldo-impulso-{hoy}.json: para restaurar en la agenda (Ajustes → Importar respaldo).',\n          f'  • alumnos-{hoy}.csv y reservas-{hoy}.csv: para consultar en Excel.', '',\n          f'Historial completo de cambios: https://github.com/{os.environ.get(\"REPO\", \"\")}/commits/main/data/agenda.json']\n\n    msg = EmailMessage()\n    msg['Subject'] = f'Respaldo Agenda Impulso Académico · {now.strftime(\"%d/%m/%Y\")}'\n    msg['From'] = user\n    msg['To'] = ', '.join(to)\n    msg.set_content('\\n'.join(L))\n    msg.add_attachment(respaldo_bytes, maintype='application', subtype='json', filename=f'respaldo-impulso-{hoy}.json')\n    msg.add_attachment(alumnos_csv, maintype='text', subtype='csv', filename=f'alumnos-{hoy}.csv')\n    msg.add_attachment(reservas_csv, maintype='text', subtype='csv', filename=f'reservas-{hoy}.csv')\n\n    ctx = ssl.create_default_context()\n    try:\n        if port == 465:\n            with smtplib.SMTP_SSL(host, port, context=ctx, timeout=60) as s:\n                s.login(user, password)\n                s.send_message(msg)\n        else:\n            with smtplib.SMTP(host, port, timeout=60) as s:\n                if os.environ.get('SMTP_NO_TLS') != '1':\n                    s.starttls(context=ctx)\n                if os.environ.get('SMTP_NO_LOGIN') != '1':\n                    s.login(user, password)\n                s.send_message(msg)\n    except smtplib.SMTPAuthenticationError:\n        print('ERROR: el servidor de correo rechazó el usuario o la contraseña. Con Gmail usa una \"contraseña de aplicación\", no la contraseña normal.')\n        return 1\n    except Exception as e:  # noqa: BLE001\n        print(f'ERROR al enviar el correo: {e}')\n        return 1\n    print(f'Respaldo enviado a {\", \".join(to)}.')\n    return 0\n\n\nif __name__ == '__main__':\n    sys.exit(main())\n", "README.md": "# Datos de la Agenda Impulso Académico\n\nRepositorio **privado**. No lo hagas público: contiene nombres de alumnos y teléfonos de sus familias.\n\n- `data/agenda.json`: toda la información de la agenda. La agenda (https://makidav.github.io/impulso/) lo actualiza sola; no hace falta editarlo a mano.\n- Cada cambio guardado en la agenda es un commit. Para ver o recuperar una versión anterior: pestaña **Commits** → elige la fecha → abre `data/agenda.json`.\n- `.github/workflows/respaldo-correo.yml` y `.github/scripts/enviar_respaldo.py`: envían el respaldo por correo los lunes a las 7:00 am y a las 9:00 pm de los días con cambios.\n\n## Datos del correo (Settings → Secrets and variables → Actions)\n\n| Secreto | Valor |\n|---|---|\n| `SMTP_USER` | Cuenta que envía (ej. una cuenta de Gmail) |\n| `SMTP_PASS` | Contraseña de aplicación de esa cuenta |\n| `MAIL_TO` | Opcional. Por defecto `contacto@impulsoacademico.mx` (varios separados por coma) |\n| `SMTP_HOST` / `SMTP_PORT` | Opcionales. Por defecto `smtp.gmail.com` y `465` |\n\n## Restaurar\nAbre el `.json` adjunto en cualquier correo de respaldo desde la agenda: **Ajustes → Importar respaldo**.\n"};
+const GH_PATH = 'data/agenda.json';
+const GH_CFG_KEY = 'ia-gh-config';
+const COLS = ['students','bookings','waitlist','config'];
+const clone = o => JSON.parse(JSON.stringify(o ?? {}));
+function b64enc(str){ const by = new TextEncoder().encode(str); let bin = ''; for (let i=0;i<by.length;i+=0x8000) bin += String.fromCharCode.apply(null, by.subarray(i, i+0x8000)); return btoa(bin); }
+function b64dec(b64){ const bin = atob(String(b64).replace(/\s/g,'')); const by = new Uint8Array(bin.length); for (let i=0;i<bin.length;i++) by[i] = bin.charCodeAt(i); return new TextDecoder().decode(by); }
+function mergeDeep(t, s){ for (const k of Object.keys(s)){ const v = s[k]; if (v && typeof v==='object' && !Array.isArray(v) && t[k] && typeof t[k]==='object' && !Array.isArray(t[k])) mergeDeep(t[k], v); else t[k] = v; } return t; }
+function applyOps(data, ops){
+  for (const o of ops){
+    data[o.col] = data[o.col] || {};
+    if (o.op==='set') data[o.col][o.id] = clone(o.data);
+    else if (o.op==='update'){ if (data[o.col][o.id]) mergeDeep(data[o.col][o.id], clone(o.data)); }
+    else if (o.op==='delete') delete data[o.col][o.id];
+  }
+  return data;
+}
+async function ghFetch(gc, path, opts={}){
+  const base = gc.apiBase || 'https://api.github.com';
+  const headers = Object.assign({ 'Authorization': 'Bearer ' + gc.token, 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, opts.headers || {});
+  if (opts.body) headers['Content-Type'] = 'application/json';
+  return fetch(base + path, { method: opts.method || 'GET', headers, body: opts.body, cache: 'no-store' });
+}
+function ghErrText(status, j){
+  if (status===401) return 'GitHub rechazó el token (vencido o revocado). Crea uno nuevo y vuelve a conectar en Ajustes.';
+  if (status===403) return (j && /rate limit/i.test(j.message||'')) ? 'GitHub limitó las solicitudes por un rato. Se reintentará solo.' : 'El token no tiene permiso para escribir en el repositorio de datos.';
+  if (status===404) return 'No se encontró el repositorio de datos o el token no tiene acceso a él.';
+  return `GitHub respondió con un error (${status}). Se reintentará.`;
+}
+function githubDB(gc){
+  const tag = gc.owner + '/' + gc.repo;
+  const CACHE = 'ia-gh-cache:' + tag, QUEUE = 'ia-gh-queue:' + tag;
+  const branch = gc.branch || 'main';
+  const cpath = `/repos/${gc.owner}/${gc.repo}/contents/${GH_PATH}`;
+  let remote = lsGet(CACHE) || { data:{}, sha:null, etag:null, syncedAt:null, loaded:false };
+  let queue = lsGet(QUEUE) || [];
+  let view = applyOps(clone(remote.data), queue);
+  const listeners = {};
+  let pushTimer = null, pushing = false, retryMs = 15000;
+  const status = { state: queue.length ? 'pending' : 'ok', pending: queue.length, syncedAt: remote.syncedAt, msg: '', fatal: false };
+  const onStatus = new Set();
+  const setStatus = (state, msg='', fatal=false) => { Object.assign(status, { state, msg, fatal, pending: queue.length, syncedAt: remote.syncedAt }); onStatus.forEach(f => f(status)); };
+  const saveCache = () => { try { localStorage.setItem(CACHE, JSON.stringify(remote)); } catch(e){} };
+  const saveQueue = () => { try { localStorage.setItem(QUEUE, JSON.stringify(queue)); } catch(e){ setStatus('error', 'El navegador no pudo guardar la copia local. No cierres la página hasta que diga “Guardado”.'); } };
+  const snap = col => { const docs = Object.entries(view[col]||{}).map(([id,d]) => ({ id, exists:true, data:() => d })); return { docs, size:docs.length, empty:!docs.length, docChanges:() => [] }; };
+  const emit = col => (listeners[col]||[]).forEach(fn => fn(snap(col)));
+  const emitAll = () => COLS.forEach(emit);
+
+  async function pull(){
+    const headers = {};
+    if (remote.loaded && remote.etag) headers['If-None-Match'] = remote.etag;
+    const r = await ghFetch(gc, `${cpath}?ref=${encodeURIComponent(branch)}`, { headers });
+    if (r.status===304){ return false; }
+    if (r.status===404){
+      const rr = await ghFetch(gc, `/repos/${gc.owner}/${gc.repo}`);
+      if (!rr.ok){ const e = new Error(ghErrText(rr.status)); e.status = rr.status; throw e; }
+      remote = { data:{}, sha:null, etag:null, syncedAt:new Date().toISOString(), loaded:true };
+    } else if (r.ok){
+      const j = await r.json();
+      let text;
+      if (j.content && j.encoding==='base64') text = b64dec(j.content);
+      else { const rr = await ghFetch(gc, `${cpath}?ref=${encodeURIComponent(branch)}`, { headers:{ Accept:'application/vnd.github.raw+json' } }); text = await rr.text(); }
+      const parsed = JSON.parse(text);
+      const data = {}; COLS.forEach(c => data[c] = parsed[c] || {});
+      const changed = JSON.stringify(data) !== JSON.stringify(remote.data);
+      remote = { data, sha:j.sha, etag:r.headers.get('ETag'), syncedAt:new Date().toISOString(), loaded:true };
+      if (!changed){ saveCache(); return false; }
+    } else {
+      let j = null; try { j = await r.json(); } catch(e){}
+      const e = new Error(ghErrText(r.status, j)); e.status = r.status; throw e;
+    }
+    view = applyOps(clone(remote.data), queue);
+    saveCache(); emitAll();
+    return true;
+  }
+  function commitMsg(ops){
+    const n = ops.length, cols = [...new Set(ops.map(o => ({students:'alumnos',bookings:'reservas',waitlist:'lista de espera',config:'ajustes'}[o.col] || o.col)))];
+    return `Agenda: ${n} cambio${n>1?'s':''} (${cols.join(', ')})`;
+  }
+  async function push(){
+    if (pushing || !queue.length) return;
+    pushing = true; setStatus('saving');
+    try {
+      for (let attempt = 0; attempt < 5; attempt++){
+        await pull();
+        const n = queue.length, ops = queue.slice(0, n);
+        const next = applyOps(clone(remote.data), ops);
+        const file = Object.assign({ version:1, updatedAt:new Date().toISOString() }, next);
+        const body = { message: commitMsg(ops), content: b64enc(JSON.stringify(file, null, 1)), branch };
+        if (remote.sha) body.sha = remote.sha;
+        const r = await ghFetch(gc, cpath, { method:'PUT', body: JSON.stringify(body) });
+        if (r.ok){
+          const j = await r.json();
+          remote = { data: next, sha: j.content && j.content.sha, etag: null, syncedAt: new Date().toISOString(), loaded: true };
+          queue = queue.slice(n); saveQueue(); saveCache();
+          view = applyOps(clone(remote.data), queue);
+          retryMs = 15000;
+          setStatus(queue.length ? 'pending' : 'ok');
+          if (queue.length) schedule();
+          return;
+        }
+        if (r.status===409 || r.status===422){ remote.etag = null; await new Promise(res => setTimeout(res, 300 + Math.random()*700)); continue; }
+        let j = null; try { j = await r.json(); } catch(e){}
+        const e = new Error(ghErrText(r.status, j)); e.status = r.status; throw e;
+      }
+      throw new Error('Otro dispositivo está guardando al mismo tiempo. Se reintentará.');
+    } catch(e){
+      const offline = !(e && e.status);
+      const fatal = e && (e.status===401 || e.status===404 || (e.status===403 && !/limitó/.test(e.message)));
+      setStatus(offline ? 'offline' : 'error', offline ? 'Sin conexión con GitHub. Los cambios están a salvo en este navegador y se subirán solos.' : e.message, fatal);
+      clearTimeout(pushTimer); pushTimer = setTimeout(push, retryMs); retryMs = Math.min(retryMs*2, 5*60e3);
+    } finally { pushing = false; }
+  }
+  function schedule(){ clearTimeout(pushTimer); pushTimer = setTimeout(push, 1200); }
+  function enqueue(op){
+    queue.push(op); saveQueue();
+    applyOps(view, [op]);
+    setStatus('pending'); emit(op.col); schedule();
+  }
+  async function refresh(){
+    if (pushing) return;
+    try { const ch = await pull(); if (queue.length) await push(); else setStatus('ok'); return ch; }
+    catch(e){ const offline = !(e && e.status); setStatus(offline ? 'offline' : 'error', offline ? 'Sin conexión con GitHub. Mostrando la última copia guardada en este navegador.' : e.message, e && (e.status===401 || e.status===404)); }
+  }
+  setInterval(() => { if (document.visibilityState==='visible') refresh(); }, 60e3);
+  window.addEventListener('focus', () => refresh());
+  window.addEventListener('online', () => refresh());
+  window.addEventListener('beforeunload', e => { if (queue.length){ e.preventDefault(); e.returnValue = ''; } });
+  const rid = () => Date.now().toString(36) + [...crypto.getRandomValues(new Uint8Array(8))].map(b => (b%36).toString(36)).join('');
+
+  return {
+    gh: true, gc, status, onStatus,
+    hasCache: () => remote.loaded,
+    pending: () => queue.length,
+    ready: refresh,
+    syncNow: async () => { await refresh(); return status; },
+    raw: () => clone(view),
+    collection(col){
+      return {
+        doc(id){
+          id = id || rid();
+          return { id,
+            async set(d){ enqueue({ col, id, op:'set', data: clone(d), at: Date.now() }); },
+            async update(d){ if (!view[col] || !view[col][id]){ const e = new Error('missing'); e.code = 'invalid_argument'; throw e; } enqueue({ col, id, op:'update', data: clone(d), at: Date.now() }); },
+            async delete(){ enqueue({ col, id, op:'delete', at: Date.now() }); }
+          };
+        },
+        onSnapshot(fn){ (listeners[col] = listeners[col] || []).push(fn); setTimeout(() => fn(snap(col)), 0); return () => { listeners[col] = listeners[col].filter(f => f!==fn); }; }
+      };
+    }
+  };
+}
+/* Instala o actualiza en el repositorio de datos el respaldo automático por correo */
+async function ghInstallBackup(gc){
+  const out = [];
+  for (const [path, content] of Object.entries(GH_FILES)){
+    const url = `/repos/${gc.owner}/${gc.repo}/contents/${path}`;
+    const g = await ghFetch(gc, `${url}?ref=${encodeURIComponent(gc.branch||'main')}`);
+    let sha = null;
+    if (g.ok){ const j = await g.json(); sha = j.sha; if (j.content && b64dec(j.content) === content){ out.push([path, 'ok']); continue; } }
+    else if (g.status!==404){ out.push([path, 'error ' + g.status]); continue; }
+    const body = { message: `Respaldo por correo: ${sha ? 'actualiza' : 'instala'} ${path}`, content: b64enc(content), branch: gc.branch||'main' };
+    if (sha) body.sha = sha;
+    const p = await ghFetch(gc, url, { method:'PUT', body: JSON.stringify(body) });
+    out.push([path, p.ok ? (sha ? 'actualizado' : 'instalado') : 'error ' + p.status]);
+  }
+  return out;
+}
+async function ghDispatchBackup(gc){
+  const r = await ghFetch(gc, `/repos/${gc.owner}/${gc.repo}/actions/workflows/respaldo-correo.yml/dispatches`, { method:'POST', body: JSON.stringify({ ref: gc.branch||'main', inputs:{ motivo:'enviado desde la agenda' } }) });
+  if (r.status===204) return { ok:true };
+  if (r.status===404) return { ok:false, msg:'No encontré el respaldo automático en el repositorio. Pulsa “Instalar respaldo por correo”.' };
+  if (r.status===403) return { ok:false, msg:'El token no tiene el permiso “Actions: Read and write”.' };
+  return { ok:false, msg:`GitHub respondió ${r.status}.` };
+}
+
+/* ---------- Pantalla de conexión (primera vez en cada dispositivo) ---------- */
+function renderSetup(errMsg, prefill){
+  const pf = prefill || lsGet(GH_CFG_KEY) || {};
+  const hasLocal = (() => { try { const d = JSON.parse(localStorage.getItem('ia-agenda-db-v1')); return d && Object.keys(d.bookings||{}).length + Object.keys(d.students||{}).length; } catch(e){ return 0; } })();
+  $('#app').innerHTML = `<div class="login wrap"><form class="login-card" id="setup-form" novalidate style="width:min(480px,100%)">
+    <div class="brand"><span class="brand-mark">IA</span><span>Impulso Académico<small>Agenda privada</small></span></div>
+    <h2>Conectar el almacenamiento</h2>
+    <p class="small" style="margin:0">La información se guarda en un repositorio <b>privado</b> de GitHub. Esto se hace una sola vez en cada computadora o celular.</p>
+    ${errMsg ? `<div class="note bad">${esc(errMsg)}</div>` : ''}
+    ${hasLocal ? `<div class="note ok">Encontré ${hasLocal} registros guardados en este navegador. Si el repositorio aún no tiene datos, los subiré al conectar; si ya tiene, se usan los del repositorio.</div>` : ''}
+    <div class="grid2">
+      <div class="field"><label for="gh-owner">Usuario de GitHub</label><input id="gh-owner" type="text" value="${esc(pf.owner || 'makidav')}" autocomplete="off"></div>
+      <div class="field"><label for="gh-repo">Repositorio privado de datos</label><input id="gh-repo" type="text" value="${esc(pf.repo || 'impulso-datos')}" autocomplete="off"></div>
+    </div>
+    <div class="field"><label for="gh-token">Token de acceso</label><input id="gh-token" type="password" autocomplete="off" placeholder="github_pat_…"></div>
+    <div class="err" id="gh-err" role="alert"></div>
+    <button class="btn primary" type="submit" id="gh-btn">Conectar</button>
+    <details class="small"><summary style="cursor:pointer;font-weight:700">¿Cómo obtengo el token?</summary>
+      <ol style="padding-left:18px;margin:8px 0 0;display:grid;gap:4px">
+        <li>En GitHub: foto de perfil → Settings → Developer settings → Personal access tokens → <b>Fine-grained tokens</b> → Generate new token.</li>
+        <li>Repository access: <b>Only select repositories</b> → el repositorio de datos.</li>
+        <li>Permissions → Repository: <b>Contents</b>, <b>Actions</b> y <b>Workflows</b> en “Read and write”.</li>
+        <li>Copia el token y pégalo aquí. Solo se guarda en este dispositivo.</li>
+      </ol></details>
+    <button type="button" class="btn ghost sm" id="gh-local">Usar sin GitHub, solo en este navegador (no recomendado)</button>
+  </form></div>`;
+  $('#gh-local').onclick = () => askConfirm('Sin GitHub los datos quedan solo en este navegador y se pierden si se borran los datos de navegación. ¿Continuar así?', 'Usar solo este navegador', () => { lsSet('ia-storage', 'local'); location.reload(); });
+  $('#setup-form').onsubmit = async e => {
+    e.preventDefault();
+    const err = $('#gh-err'), btn = $('#gh-btn');
+    const gc = { owner: $('#gh-owner').value.trim(), repo: $('#gh-repo').value.trim(), token: $('#gh-token').value.trim(), apiBase: pf.apiBase };
+    if (!gc.owner || !gc.repo || !gc.token){ err.textContent = 'Llena usuario, repositorio y token.'; return; }
+    btn.disabled = true; err.textContent = 'Revisando el repositorio…';
+    try {
+      const r = await ghFetch(gc, `/repos/${gc.owner}/${gc.repo}`);
+      if (!r.ok) throw ghErrText(r.status);
+      const j = await r.json();
+      if (!j.private) throw `El repositorio ${gc.owner}/${gc.repo} es público: los datos de los alumnos quedarían a la vista de cualquiera. Hazlo privado (Settings → General → Danger Zone → Change visibility) o crea uno privado.`;
+      if (j.permissions && j.permissions.push === false) throw 'El token puede leer pero no escribir. Dale el permiso “Contents: Read and write”.';
+      gc.branch = j.default_branch || 'main';
+      err.textContent = 'Revisando los datos…';
+      const c = await ghFetch(gc, `/repos/${gc.owner}/${gc.repo}/contents/${GH_PATH}?ref=${encodeURIComponent(gc.branch)}`);
+      if (c.status===404){
+        let seed = {}; try { seed = JSON.parse(localStorage.getItem('ia-agenda-db-v1')) || {}; } catch(x){}
+        const file = { version:1, updatedAt:new Date().toISOString() }; COLS.forEach(k => file[k] = seed[k] || {});
+        const p = await ghFetch(gc, `/repos/${gc.owner}/${gc.repo}/contents/${GH_PATH}`, { method:'PUT', body: JSON.stringify({ message: hasLocal ? 'Agenda: datos iniciales (copiados de este navegador)' : 'Agenda: archivo de datos inicial', content: b64enc(JSON.stringify(file, null, 1)), branch: gc.branch }) });
+        if (!p.ok) throw ghErrText(p.status);
+      } else if (!c.ok) throw ghErrText(c.status);
+      err.textContent = 'Instalando el respaldo por correo…';
+      let inst = []; try { inst = await ghInstallBackup(gc); } catch(x){}
+      lsSet(GH_CFG_KEY, gc); lsSet('ia-storage', 'github');
+      const bad = inst.filter(x => /^error/.test(x[1]));
+      if (bad.length) lsSet('ia-gh-install-warning', 'No se pudo instalar el respaldo por correo (falta el permiso “Workflows: Read and write” en el token). Puedes instalarlo después desde Ajustes.');
+      location.reload();
+    } catch(x){ err.textContent = typeof x==='string' ? x : 'No hay conexión con GitHub. Revisa el internet e inténtalo de nuevo.'; btn.disabled = false; }
+  };
+}
+
+/* ---------- Indicador de guardado ---------- */
+function syncLabel(st){
+  const when = st.syncedAt ? hm(new Date(st.syncedAt)) : '';
+  if (st.state==='ok') return ['ok', `Guardado en GitHub${when?' · '+when:''}`];
+  if (st.state==='saving') return ['saving', 'Guardando…'];
+  if (st.state==='pending') return ['saving', `${st.pending} cambio${st.pending>1?'s':''} por subir…`];
+  if (st.state==='offline') return ['warn', `Sin conexión · ${st.pending} pendiente${st.pending===1?'':'s'} a salvo`];
+  return ['bad', 'Error al guardar: ver Ajustes'];
+}
+function renderSync(){
+  const el = $('#sync'); if (!el || !S.db || !S.db.gh) return;
+  const [cls, txt] = syncLabel(S.db.status);
+  el.className = 'sync ' + cls; el.textContent = txt; el.title = S.db.status.msg || 'Pulsa para sincronizar ahora';
+}
+
+/* =====================================================================
    SHELL
    ===================================================================== */
-const VIEWS = [['calendario','Calendario'],['alertas','Alertas'],['alumnos','Alumnos'],['espera','Lista de espera'],['reportes','Reportes'],['ajustes','Ajustes']];
+const VIEWS =[['calendario','Calendario'],['alertas','Alertas'],['alumnos','Alumnos'],['espera','Lista de espera'],['reportes','Reportes'],['ajustes','Ajustes']];
 function renderShell(){
   loginRendered = false;
   $('#app').innerHTML = `<header class="top"><div class="wrap">
       <div class="brand"><span class="brand-mark">IA</span><span>Impulso Académico<small>Agenda</small></span></div>
       <nav class="tabs" id="tabs" aria-label="Secciones"></nav>
+      ${S.db && S.db.gh ? `<button class="sync ok" id="sync" data-act="syncnow" aria-live="polite"></button>` : ''}
       <button class="btn sm logout" data-act="logout">Cerrar sesión</button>
     </div></header>
     <div id="banner"></div>
@@ -896,7 +1162,10 @@ function renderTabs(){
   const needBk = S.local && (!lastBk || Date.now() - lastBk > 7*864e5);
   $('#banner').innerHTML = (S.auth && S.auth.initial
     ? `<div class="banner"><div class="wrap">Estás usando la contraseña inicial. Cámbiala para proteger la agenda. <button class="btn sm" data-act="view" data-v="ajustes">Cambiar contraseña</button></div></div>` : '')
-    + (needBk ? `<div class="banner"><div class="wrap">Los datos se guardan solo en este navegador y en esta computadora. ${lastBk ? `Último respaldo: ${fmtDT(new Date(lastBk))}.` : 'Aún no has descargado un respaldo.'} <button class="btn sm" data-act="backup">Descargar respaldo</button></div></div>` : '');
+    + (needBk ? `<div class="banner"><div class="wrap">Los datos se guardan solo en este navegador y en esta computadora. ${lastBk ? `Último respaldo: ${fmtDT(new Date(lastBk))}.` : 'Aún no has descargado un respaldo.'} <button class="btn sm" data-act="backup">Descargar respaldo</button> <button class="btn sm" data-act="ghtoken">Conectar con GitHub</button></div></div>` : '')
+    + (S.db && S.db.gh && S.db.status.fatal ? `<div class="banner" style="background:var(--bad-soft)"><div class="wrap">No se puede guardar en GitHub: ${esc(S.db.status.msg)} Tus cambios siguen a salvo en este navegador. <button class="btn sm" data-act="ghtoken">Reconectar</button></div></div>` : '')
+    + (S.db && S.db.gh && lsGet('ia-gh-install-warning') ? `<div class="banner"><div class="wrap">${esc(lsGet('ia-gh-install-warning'))} <button class="btn sm" data-act="view" data-v="ajustes">Ir a Ajustes</button></div></div>` : '');
+  renderSync();
 }
 function renderMain(){
   if (!S.logged || !$('#main')) return;
@@ -1683,9 +1952,40 @@ function buildReport(sel, from, to){
 /* =====================================================================
    AJUSTES
    ===================================================================== */
+function storagePanel(){
+  if (S.db && S.db.gh){
+    const gc = S.db.gc, st = S.db.status, [cls, txt] = syncLabel(st);
+    const hist = `https://github.com/${gc.owner}/${gc.repo}/commits/${gc.branch||'main'}/${GH_PATH}`;
+    const sec = `https://github.com/${gc.owner}/${gc.repo}/settings/secrets/actions`;
+    const runs = `https://github.com/${gc.owner}/${gc.repo}/actions/workflows/respaldo-correo.yml`;
+    return `<div class="panel stack" style="margin-top:12px">
+      <div class="row" style="justify-content:space-between"><h3>Almacenamiento y respaldos</h3><span class="sync ${cls}" style="margin:0;cursor:default">${esc(txt)}</span></div>
+      <dl class="kv">
+        <dt>Repositorio de datos</dt><dd>${esc(gc.owner)}/${esc(gc.repo)} (privado)</dd>
+        <dt>Cómo se guarda</dt><dd>Cada cambio se sube a GitHub como una versión. Si no hay internet, se guarda en este navegador y se sube al volver la conexión.</dd>
+        <dt>Respaldo por correo</dt><dd>Lunes 7:00 am, y a las 9:00 pm de los días con cambios. Se envía a la dirección configurada en GitHub (por defecto ${esc(INITIAL_EMAIL)}).</dd>
+        ${st.msg ? `<dt>Aviso</dt><dd style="color:var(--bad)">${esc(st.msg)}</dd>` : ''}
+      </dl>
+      <div class="row">
+        <button class="btn primary" data-act="syncnow">Sincronizar ahora</button>
+        <button class="btn" data-act="ghsend">Enviar respaldo por correo ahora</button>
+        <button class="btn" data-act="ghinstall">Instalar / actualizar respaldo por correo</button>
+        <a class="btn" href="${esc(hist)}" target="_blank" rel="noopener">Historial de versiones</a>
+        <a class="btn" href="${esc(runs)}" target="_blank" rel="noopener">Ver envíos</a>
+        <a class="btn" href="${esc(sec)}" target="_blank" rel="noopener">Datos del correo (secretos)</a>
+      </div>
+      <div class="row"><button class="btn sm ghost" data-act="ghtoken">Cambiar token</button><button class="btn sm ghost danger" data-act="ghdisconnect">Desconectar este dispositivo</button></div>
+    </div>`;
+  }
+  if (S.local) return `<div class="panel stack" style="margin-top:12px"><h3>Almacenamiento</h3>
+    <div class="note warn">Los datos están solo en este navegador. Conecta un repositorio privado de GitHub para que se guarden en línea, se vean en cualquier dispositivo y se respalden por correo.</div>
+    <div class="row"><button class="btn primary" data-act="ghtoken">Conectar con GitHub</button></div></div>`;
+  return '';
+}
 function viewSettings(){
   const c = S.cfg;
   return `<h2>Ajustes</h2>
+  ${storagePanel()}
   <div class="grid2" style="margin-top:12px;align-items:start">
     <form class="panel stack" id="pw-form" novalidate>
       <h3>Cambiar contraseña</h3>
@@ -1794,6 +2094,22 @@ const ACT = {
     openImpForm({ studentId:w.studentId, plan, slots:w.slots, start: av || addDays(todayS(),2) }); },
   repcopy: () => copyText(repText),
   repdl: () => saveFile(`reporte-impulso-${todayS()}.html`, `<!doctype html><meta charset="utf-8"><title>Reporte Impulso Académico ${todayS()}</title><pre style="font:14px/1.5 monospace;white-space:pre-wrap">${esc(repText)}</pre>`),
+  syncnow: async () => { if (!S.db || !S.db.gh) return; toast('Sincronizando…'); const st = await S.db.syncNow(); toast(st.state==='ok' ? 'Todo guardado en GitHub' : (st.msg || 'Hay cambios pendientes'), st.state!=='ok'); if (S.view==='ajustes') renderMain(); },
+  ghsend: async () => { if (!S.db || !S.db.gh) return;
+    if (S.db.pending()) await S.db.syncNow();
+    const r = await ghDispatchBackup(S.db.gc).catch(() => ({ ok:false, msg:'Sin conexión con GitHub.' }));
+    toast(r.ok ? 'Respaldo solicitado. Llega al correo en 1 a 3 minutos.' : r.msg, !r.ok); },
+  ghinstall: async () => { if (!S.db || !S.db.gh) return; toast('Instalando…');
+    try { const res = await ghInstallBackup(S.db.gc); const bad = res.filter(x => /^error/.test(x[1]));
+      if (bad.length){ toast(`No se pudo instalar (${bad.map(x=>x[1]).join(', ')}). El token necesita “Workflows: Read and write”.`, true); }
+      else { lsSet('ia-gh-install-warning', null); toast('Respaldo por correo instalado. Falta agregar los datos del correo en GitHub (secretos).'); renderTabs(); } }
+    catch(e){ toast('Sin conexión con GitHub.', true); } },
+  ghtoken: () => { closeModal(); S.logged = false; renderSetup(null, S.db && S.db.gc); },
+  ghdisconnect: () => { const n = S.db && S.db.pending ? S.db.pending() : 0;
+    askConfirm(n ? `Hay ${n} cambio(s) que aún no se suben a GitHub y se perderían. Sincroniza primero. ¿Desconectar de todos modos?` : 'Este dispositivo dejará de tener acceso a la agenda hasta que vuelvas a conectar el token. Los datos siguen a salvo en GitHub.', 'Desconectar', () => {
+      const gc = S.db.gc, tag = gc.owner + '/' + gc.repo;
+      try { localStorage.removeItem(GH_CFG_KEY); localStorage.removeItem('ia-storage'); localStorage.removeItem('ia-gh-cache:'+tag); localStorage.removeItem('ia-gh-queue:'+tag); } catch(e){}
+      ssSet('ia-sess', null); location.reload(); }); },
   backup: async () => { if (await saveFile(`respaldo-impulso-${todayS()}.json`, JSON.stringify({ exportedAt:new Date().toISOString(), config:S.cfg, students:S.students, bookings:S.bookings, waitlist:S.waitlist }, null, 2))){ lsSet('ia-last-backup', Date.now()); renderTabs(); } }
 };
 document.addEventListener('click', e => {
@@ -1829,10 +2145,19 @@ setInterval(() => { if (S.logged){ S.memo = {}; renderTabs(); if (S.view==='aler
 async function boot(){
   if (!window.crypto || !crypto.subtle){ renderLogin('Este navegador no permite el cifrado necesario para la contraseña. Ábrelo con Chrome, Edge, Safari o Firefox actualizados.'); return; }
   if (!window.claude || !window.claude.use){
-    /* Archivo independiente: los datos se guardan en este navegador */
+    /* Fuera de claude.ai: GitHub (recomendado) o solo este navegador */
     try { localStorage.setItem('ia-test','1'); localStorage.removeItem('ia-test'); }
     catch(e){ renderLogin('Este navegador no permite guardar datos (modo privado o almacenamiento bloqueado). Ábrelo en una ventana normal.'); return; }
-    S.db = localDB(); S.local = true;
+    const mode = lsGet('ia-storage'), gc = lsGet(GH_CFG_KEY);
+    if (mode==='github' && gc){
+      S.db = githubDB(gc);
+      S.db.onStatus.add(() => { renderSync(); if (S.logged) renderTabs(); });
+      $('#app').querySelector('p') && ($('#app').querySelector('p').textContent = 'Descargando la agenda desde GitHub…');
+      await S.db.ready();
+      if (!S.db.hasCache()){ renderSetup(S.db.status.msg || 'No se pudo leer el repositorio de datos. Revisa el internet o el token.', gc); return; }
+    } else if (mode==='local'){
+      S.db = localDB(); S.local = true;
+    } else { renderSetup(); return; }
     subscribeConfig();
     const waitL = setInterval(() => { if (S.auth !== undefined){ clearInterval(waitL); if (sessionValid()) enterApp(); else if (!loginRendered) renderLogin(); } }, 50);
     return;
