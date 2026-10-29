@@ -1,0 +1,1852 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Agenda Impulso Académico</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap">
+<style>
+/* Layout: barra superior fija con pestañas; debajo, una sola columna de trabajo (calendario, alertas, alumnos...). Colores de marca: amarillo = Impulso, rosa = Tutoría. */
+:root{
+  --bg:#F2EBE0; --surface:#FFFDF8; --surface-2:#ECE4D8; --line:#E0D5C5;
+  --ink:#2A2630; --muted:#6E6670;
+  --sun:#FFC53D; --sun-soft:#FFE7A8; --sun-ink:#3B2A00;
+  --rose:#F4A3B3; --rose-soft:#FCDDE3; --rose-line:#E98DA1; --rose-ink:#4A1422;
+  --ok:#2F7D4F; --ok-soft:#DDF0E3; --warn:#B86A00; --warn-soft:#FCEBCF; --bad:#B8283F; --bad-soft:#F9D9DE;
+  --wa:#1FA855; --focus:#2B6CB0;
+  --f-ui:"Nunito", ui-rounded, "Segoe UI", system-ui, sans-serif;
+  --r:12px; --r-s:8px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#1B191E; --surface:#252229; --surface-2:#2E2A33; --line:#3B3640;
+  --ink:#F1EBE3; --muted:#A99FA9;
+  --sun:#F0B829; --sun-soft:#4A3A12; --sun-ink:#231900;
+  --rose:#E48A9D; --rose-soft:#46262F; --rose-line:#B8667A; --rose-ink:#2B0B13;
+  --ok:#6CC891; --ok-soft:#1F3A2A; --warn:#F0A847; --warn-soft:#41301A; --bad:#F07A8E; --bad-soft:#47222A;
+  --wa:#3DD07A; --focus:#7FB3F0; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#1B191E; --surface:#252229; --surface-2:#2E2A33; --line:#3B3640;
+  --ink:#F1EBE3; --muted:#A99FA9;
+  --sun:#F0B829; --sun-soft:#4A3A12; --sun-ink:#231900;
+  --rose:#E48A9D; --rose-soft:#46262F; --rose-line:#B8667A; --rose-ink:#2B0B13;
+  --ok:#6CC891; --ok-soft:#1F3A2A; --warn:#F0A847; --warn-soft:#41301A; --bad:#F07A8E; --bad-soft:#47222A;
+  --wa:#3DD07A; --focus:#7FB3F0; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+[hidden]{display:none!important}
+img{max-width:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-size:15px;line-height:1.45;font-variant-numeric:tabular-nums}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+h1,h2,h3{margin:0;text-wrap:balance;line-height:1.2}
+h2{font-size:1.35rem;font-weight:900}
+h3{font-size:1.05rem;font-weight:800}
+.muted{color:var(--muted)}
+.small{font-size:.85rem}
+.wrap{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));max-width:1240px;margin:0 auto}
+
+/* ---------- top bar ---------- */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:14px;padding-block:10px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font-weight:900;font-size:1.05rem;white-space:nowrap}
+.brand-mark{width:30px;height:30px;border-radius:9px;background:var(--sun);display:grid;place-items:center;color:var(--sun-ink);font-weight:900;font-size:.85rem}
+.brand small{display:block;font-weight:700;color:var(--muted);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase}
+.tabs{display:flex;gap:4px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none}
+.tab{border:0;background:transparent;padding:8px 12px;border-radius:999px;font-weight:800;color:var(--muted);cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.tab:hover{background:var(--surface-2);color:var(--ink)}
+.tab[aria-current="page"]{background:var(--ink);color:var(--surface)}
+.badge{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--bad);color:#fff;font-size:.72rem;display:inline-grid;place-items:center;font-weight:900}
+.logout{margin-left:auto}
+@media (max-width:820px){.tabs{order:3;flex-basis:100%}.top .wrap{row-gap:6px}}
+
+/* ---------- generic ---------- */
+main{padding-block:18px 60px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--surface);padding:8px 14px;border-radius:999px;font-weight:800;cursor:pointer;text-decoration:none;color:var(--ink);font-size:.9rem;white-space:nowrap}
+.btn:hover{border-color:var(--ink)}
+.btn.primary{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.btn.sun{background:var(--sun);color:var(--sun-ink);border-color:var(--sun)}
+.btn.rose{background:var(--rose);color:var(--rose-ink);border-color:var(--rose)}
+.btn.wa{background:var(--wa);color:#fff;border-color:var(--wa)}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.sm{padding:5px 10px;font-size:.8rem}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.stack{display:flex;flex-direction:column;gap:12px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field label,.lbl{font-size:.75rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+input[type=text],input[type=email],input[type=password],input[type=tel],input[type=date],input[type=number],select,textarea{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-s);padding:9px 11px;width:100%;min-width:0}
+textarea{min-height:80px;resize:vertical}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:999px;font-size:.75rem;font-weight:800;white-space:nowrap;border:1px solid transparent}
+.chip.pre{background:var(--rose-soft);color:var(--bad);border-color:var(--rose-line)}
+.chip.conf{background:var(--ok-soft);color:var(--ok)}
+.chip.venc{background:var(--bad);color:#fff}
+.chip.cancel{background:var(--surface-2);color:var(--muted)}
+.chip.imp{background:var(--sun);color:var(--sun-ink)}
+.chip.tut{background:var(--rose);color:var(--rose-ink)}
+.chip.repo{background:var(--rose-soft);color:var(--ink);border-color:var(--rose-line)}
+.chip.firm{background:var(--ok-soft);color:var(--ok)}
+.chip.tent{background:var(--warn-soft);color:var(--warn)}
+.chip.plus{background:var(--ink);color:var(--surface)}
+.chip.basico{background:var(--surface-2);color:var(--ink)}
+.empty{padding:28px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:var(--r)}
+.note{padding:10px 12px;border-radius:var(--r-s);background:var(--surface-2);font-size:.88rem}
+.note.warn{background:var(--warn-soft);color:var(--ink)}
+.note.bad{background:var(--bad-soft);color:var(--ink)}
+.note.ok{background:var(--ok-soft);color:var(--ink)}
+.err{color:var(--bad);font-weight:700;font-size:.88rem}
+.scroll-x{overflow-x:auto}
+table.list{border-collapse:collapse;width:100%;font-size:.9rem}
+table.list th{text-align:left;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:800;padding:8px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.list td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+table.list tr.click{cursor:pointer}
+table.list tr.click:hover td{background:var(--surface-2)}
+
+/* ---------- calendar toolbar ---------- */
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px}
+.seg{display:inline-flex;background:var(--surface-2);border-radius:999px;padding:3px}
+.seg button{border:0;background:transparent;padding:6px 14px;border-radius:999px;font-weight:800;cursor:pointer;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.period-title{font-size:1.3rem;font-weight:900}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 14px;cursor:pointer;text-align:left}
+.kpi b{display:block;font-size:1.5rem;font-weight:900;line-height:1.1}
+.kpi span{font-size:.8rem;color:var(--muted);font-weight:700}
+.kpi.hot b{color:var(--bad)}
+
+/* week grid */
+.calcard{background:var(--surface);border-radius:18px;padding:14px;border:1px solid var(--line)}
+table.wk{border-collapse:separate;border-spacing:6px;width:100%;min-width:760px;table-layout:fixed}
+table.wk th{font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:800;padding:4px}
+table.wk th b{display:block;font-size:1rem;color:var(--ink);letter-spacing:0}
+table.wk th.today b{background:var(--ink);color:var(--surface);border-radius:999px;display:inline-block;padding:0 8px}
+table.wk th.hr{text-align:left;width:118px;text-transform:none;letter-spacing:0;color:var(--ink);font-size:.82rem;white-space:normal}
+.cell{width:100%;min-height:58px;border:0;border-radius:10px;padding:6px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;font-weight:800;font-size:.82rem;position:relative;overflow:hidden}
+.cell.none{background:var(--surface-2);color:var(--muted);cursor:default;font-weight:600}
+.cell.imp{background:var(--sun);color:var(--sun-ink)}
+.cell.tut{background:var(--rose);color:var(--rose-ink)}
+.cell.mix{background:var(--rose-soft);color:var(--ink);box-shadow:inset 0 0 0 2px var(--rose-line)}
+.cell .cnt{font-size:1.02rem;font-weight:900}
+.cell .sub{font-size:.68rem;font-weight:800;opacity:.85}
+.cell .bar{position:absolute;left:0;bottom:0;height:4px;background:currentColor;opacity:.35}
+.cell.lvl-low::after,.cell.lvl-full::after{content:"";position:absolute;top:6px;right:6px;width:9px;height:9px;border-radius:50%}
+.cell.lvl-low::after{background:var(--warn);box-shadow:0 0 0 2px var(--surface)}
+.cell.lvl-full::after{background:var(--bad);box-shadow:0 0 0 2px var(--surface)}
+.cell.lvl-full{outline:2px solid var(--bad);outline-offset:-2px}
+.cell.past{opacity:.5}
+.cell:not(.none):hover{filter:brightness(.96)}
+.receso{border:2px dashed var(--line);border-radius:10px;text-align:center;font-size:.75rem;letter-spacing:.12em;font-weight:800;color:var(--muted);padding:10px}
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;font-size:.8rem}
+.legend span{display:inline-flex;align-items:center;gap:6px;font-weight:700}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+
+/* month */
+.mgrid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.mhead{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:800;text-align:center;padding:4px}
+.mday{background:var(--surface-2);border:0;border-radius:10px;padding:8px;min-height:92px;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:4px;min-width:0}
+.mday.out{opacity:.4}
+.mday.today{box-shadow:inset 0 0 0 2px var(--ink)}
+.mday .n{font-weight:900;font-size:1rem}
+.mline{font-size:.72rem;font-weight:800;border-radius:6px;padding:2px 6px;display:flex;justify-content:space-between;gap:4px}
+.mline.imp{background:var(--sun);color:var(--sun-ink)}
+.mline.tut{background:var(--rose);color:var(--rose-ink)}
+.mline.full{background:var(--bad);color:#fff}
+.mline.low{box-shadow:inset 0 0 0 2px var(--warn)}
+@media (max-width:640px){.mday{min-height:70px;padding:5px}.mline span:first-child{display:none}.mline{justify-content:center}}
+
+/* day */
+.dayslot{display:grid;grid-template-columns:130px 1fr auto;gap:12px;align-items:start;padding:12px;border-radius:var(--r);background:var(--surface);border:1px solid var(--line)}
+.dayslot .hr{font-weight:900}
+.people{display:flex;flex-wrap:wrap;gap:6px}
+.person{border:1px solid var(--line);background:var(--surface-2);border-radius:999px;padding:3px 10px;font-size:.82rem;font-weight:700;cursor:pointer}
+.person.pre{border-style:dashed;border-color:var(--rose-line);background:var(--rose-soft)}
+@media (max-width:640px){.dayslot{grid-template-columns:1fr}}
+
+/* alerts */
+.alert{display:grid;grid-template-columns:6px 1fr;gap:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.alert .stripe{background:var(--muted)}
+.alert.crit .stripe{background:var(--bad)}
+.alert.warn .stripe{background:var(--warn)}
+.alert.info .stripe{background:var(--sun)}
+.alert .body{padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.alert.done{opacity:.6}
+.cands{display:flex;flex-direction:column;gap:6px;padding:8px;border-radius:var(--r-s);background:var(--surface-2)}
+.cand{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:.88rem}
+.sec-h{display:flex;align-items:baseline;gap:10px;margin:22px 0 10px}
+.sec-h .count{font-weight:900;color:var(--muted)}
+
+/* slot picker */
+table.pick{border-collapse:separate;border-spacing:4px;min-width:460px}
+table.pick th{font-size:.72rem;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+table.pick td.h{font-size:.8rem;font-weight:800;white-space:nowrap;padding-right:6px}
+.pk{display:flex;flex-direction:column;align-items:center;justify-content:center;width:74px;min-height:46px;border-radius:9px;border:2px solid transparent;background:var(--sun-soft);cursor:pointer;font-size:.72rem;font-weight:800;gap:1px;user-select:none}
+.pk input{position:absolute;opacity:0;pointer-events:none}
+.pk.on{background:var(--sun);border-color:var(--ink);color:var(--sun-ink)}
+.pk.full{background:var(--bad-soft);color:var(--bad)}
+.pk.full.on{background:var(--bad);color:#fff}
+.pk.low{box-shadow:inset 0 0 0 2px var(--warn)}
+.pk.na{background:transparent;border:1px dashed var(--line);cursor:default;color:var(--muted)}
+.pk:has(input:focus-visible){outline:3px solid var(--focus)}
+
+/* modal */
+.overlay{position:fixed;inset:0;background:rgba(20,16,24,.5);z-index:50;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:max(24px,env(safe-area-inset-top,0px)) max(12px,env(safe-area-inset-right,0px)) 24px max(12px,env(safe-area-inset-left,0px))}
+.modal{background:var(--surface);border-radius:16px;width:min(640px,100%);box-shadow:0 20px 60px rgba(0,0,0,.3);display:flex;flex-direction:column}
+.modal.wide{width:min(860px,100%)}
+.modal-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.modal-b{padding:16px 18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.modal-f{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.x{border:0;background:var(--surface-2);width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:1.1rem;flex:none}
+#confirm-root .overlay{z-index:70;align-items:center}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:10px 18px;border-radius:999px;font-weight:800;z-index:90;max-width:calc(100% - 32px);text-align:center}
+.toast.bad{background:var(--bad);color:#fff}
+
+/* login */
+.login{min-height:100vh;display:grid;place-items:center;padding-block:40px}
+.login-card{width:min(400px,100%);background:var(--surface);border-radius:20px;padding:28px;border:1px solid var(--line);display:flex;flex-direction:column;gap:16px}
+.login-card .brand-mark{width:46px;height:46px;font-size:1.1rem;border-radius:13px}
+.pwrules{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:.82rem}
+.pwrules li::before{content:"○ ";color:var(--muted)}
+.pwrules li.ok{color:var(--ok)}
+.pwrules li.ok::before{content:"● "}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:6px 12px;font-size:.9rem}
+.kv dt{color:var(--muted);font-weight:700}
+.kv dd{margin:0;font-weight:700;min-width:0}
+@media (max-width:520px){.kv{grid-template-columns:1fr}.kv dd{margin-bottom:6px}}
+pre.report{white-space:pre-wrap;background:var(--surface-2);border-radius:var(--r-s);padding:14px;font-size:.82rem;max-height:420px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace}
+.banner{background:var(--warn-soft);border-bottom:1px solid var(--line)}
+.banner .wrap{padding-block:8px;font-size:.88rem;font-weight:700;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+@media (prefers-reduced-motion:no-preference){.modal{animation:pop .16s ease-out}@keyframes pop{from{transform:translateY(8px);opacity:.6}to{transform:none;opacity:1}}}
+</style>
+</head>
+<body>
+<div id="app"><div class="login"><div class="login-card"><div class="brand"><span class="brand-mark">IA</span><span>Impulso Académico<small>Agenda privada</small></span></div><p class="muted">Conectando con la base de datos…</p></div></div></div>
+<div id="modal-root"></div>
+<div id="confirm-root"></div>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+'use strict';
+/* =====================================================================
+   CONSTANTES Y REGLAS DEL CENTRO
+   ===================================================================== */
+const INITIAL_EMAIL = 'contacto@impulsoacademico.mx';
+const INITIAL_PASS = '012345678';
+const IDLE_MS = 2 * 3600e3;          // cierre de sesión por inactividad
+const H48 = 48 * 3600e3;
+
+const DEFAULT_CFG = {
+  capImpulso: 9, capTutoria: 2, lowThreshold: 2, renewDays: 7, lookWeeks: 4,
+  priority: 'plan',                  // 'plan' = Plus antes que Básico y luego antigüedad; 'antiguedad' = antigüedad primero
+  reportEmail: INITIAL_EMAIL,
+  plans: {
+    basico: { name: 'Básico', hours: 2, repos: 1, price: 0 },
+    plus:   { name: 'Plus',   hours: 4, repos: 2, price: 0 }
+  },
+  tutoriaPrice: 0,
+  tpl: {
+    pago: 'Hola {tutor}, le escribimos de Impulso Académico. Tenemos apartado el lugar de {alumno} en el {plan} ({horario}). Para confirmarlo necesitamos el pago a más tardar el {limite}; el mes empieza en la primera clase después del pago. Después de esa hora el lugar se libera. ¡Gracias!',
+    vencida: 'Hola {tutor}, el apartado de {alumno} en el {plan} ({horario}) se liberó porque no recibimos el pago antes del {limite}. Si aún le interesa, escríbanos y revisamos disponibilidad.',
+    confirmacion: 'Hola {tutor}, confirmamos el pago de {alumno} ({plan}). Su lugar en {horario} queda reservado del {fecha} al {fin}. ¡Nos vemos!',
+    renovacion: 'Hola {tutor}, el {plan} de {alumno} termina el {fin}. Para conservar su horario ({horario}) el pago de renovación debe hacerse a más tardar el {limite}. Después de esa fecha el lugar se ofrece a otros alumnos en espera.',
+    oferta: 'Hola {tutor}, se abrió un lugar en Impulso Académico para {alumno} en el {plan} ({horario}) a partir del {fecha}. ¿Le interesa apartarlo? El pago debe hacerse a más tardar el {limite}.',
+    desplazada: 'Hola {tutor}, la reposición de {alumno} del {fecha} necesita moverse porque ese horario se asignó a una tutoría. ¿Qué otro viernes le acomoda?',
+    tutoria: 'Hola {tutor}, apartamos la tutoría de {alumno} el {fecha} a las {hora}. Para confirmarla necesitamos el pago a más tardar el {limite}.'
+  }
+};
+const TPL_NAMES = { pago:'Recordatorio de pago (prereserva)', vencida:'Prereserva vencida', confirmacion:'Confirmación de pago', renovacion:'Recordatorio de renovación', oferta:'Oferta de lugar (lista de espera)', desplazada:'Reposición desplazada', tutoria:'Prereserva de tutoría' };
+
+/* Horario semanal (igual al de la página): dow 1=lun … 6=sáb */
+const SLOT = {};
+[1,2,3,4].forEach(d => { [13,14,16,17].forEach(h => SLOT[d+'-'+h] = 'imp'); [18,19].forEach(h => SLOT[d+'-'+h] = 'tut'); });
+[13,14,16,17].forEach(h => SLOT['5-'+h] = 'mix');
+[9,10].forEach(h => SLOT['6-'+h] = 'imp'); [11,12].forEach(h => SLOT['6-'+h] = 'tut');
+const HOURS = [9,10,11,12,13,14,15,16,17,18,19];
+const keySort = (a,b) => { const [ad,ah]=a.split('-').map(Number), [bd,bh]=b.split('-').map(Number); return ad-bd || ah-bh; };
+const IMP_KEYS = Object.keys(SLOT).filter(k => SLOT[k]==='imp').sort(keySort);
+const IMP_DOWS = [1,2,3,4,6];
+const slotType = (dow,h) => SLOT[dow+'-'+h] || null;
+const isReceso = (dow,h) => h===15 && dow>=1 && dow<=6;
+const kDow = k => +k.split('-')[0], kHour = k => +k.split('-')[1];
+
+/* =====================================================================
+   FECHAS
+   ===================================================================== */
+const pad = n => String(n).padStart(2,'0');
+const ds = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const pd = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
+const addDays = (s,n) => { const d = pd(s); d.setDate(d.getDate()+n); return ds(d); };
+const todayS = () => ds(new Date());
+const dowOf = s => pd(s).getDay();
+const mondayOf = s => { const w = dowOf(s); return addDays(s, w===0 ? -6 : 1-w); };
+const daysBetween = (a,b) => Math.round((pd(b)-pd(a))/864e5);
+const MES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const MESL = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const DOWS = ['dom','lun','mar','mié','jue','vie','sáb'];
+const DOWL = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+const h12 = h => (h>12 ? h-12 : h);
+const hourLbl = h => `${h12(h)}:00 ${h>=12?'pm':'am'}`;
+const hourShort = h => `${h12(h)}${h>=12?'pm':'am'}`;
+const rangeLbl = (h,n=1) => `${hourLbl(h)} – ${hourLbl(h+n)}`;
+const fmtD = s => { if(!s) return ''; const d = pd(s); return `${DOWS[d.getDay()]} ${d.getDate()} ${MES[d.getMonth()]}`; };
+const fmtDY = s => { if(!s) return ''; const d = pd(s); return `${d.getDate()} ${MES[d.getMonth()]} ${d.getFullYear()}`; };
+const hm = dt => { const h = dt.getHours(), m = dt.getMinutes(); return `${h12(h)||12}:${pad(m)} ${h>=12?'pm':'am'}`; };
+const fmtDT = dt => `${DOWS[dt.getDay()]} ${dt.getDate()} ${MES[dt.getMonth()]}, ${hm(dt)}`;
+const relH = ms => { const h = Math.round(ms/3600e3); if (Math.abs(h) < 48) return `${h} h`; return `${Math.round(h/24)} días`; };
+
+/* Periodo mensual: del día de inicio al día anterior del mes siguiente (15 → 14).
+   Si el mes siguiente no tiene ese día (ej. 31 ene), termina el último día de ese mes. */
+function periodEnd(s){
+  const d = pd(s), y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
+  const daysNext = new Date(y, m+2, 0).getDate();
+  if (day > daysNext) return ds(new Date(y, m+1, daysNext));
+  return ds(new Date(y, m+1, day-1));
+}
+function* occurrences(key, a, b){
+  const w = kDow(key); let d = a; const off = (w - dowOf(a) + 7) % 7; d = addDays(a, off);
+  while (d <= b){ yield d; d = addDays(d, 7); }
+}
+
+/* Patrones válidos de plan */
+function checkPattern(keys, hours){
+  if (keys.length !== hours) return { ok:false, msg:`Selecciona ${hours} horas (llevas ${keys.length}).` };
+  const by = {};
+  keys.forEach(k => { (by[kDow(k)] = by[kDow(k)] || []).push(kHour(k)); });
+  const days = Object.keys(by), counts = days.map(d => by[d].length);
+  if (counts.every(c => c===1) && days.length === hours) return { ok:true, msg:`${hours} días × 1 hora` };
+  if (hours % 2 === 0 && counts.every(c => c===2) && days.length === hours/2 &&
+      days.every(d => { const [a,b] = by[d].sort((x,y)=>x-y); return b === a+1; }))
+    return { ok:true, msg:`${hours/2} día${hours/2>1?'s':''} × 2 horas seguidas` };
+  return { ok:false, msg: hours===4
+    ? 'Con 4 h a la semana: 4 días de 1 hora, o 2 días de 2 horas seguidas (1–3 pm, 4–6 pm o sábado 9–11 am).'
+    : `Con ${hours} h a la semana: ${hours} días de 1 hora${hours%2===0?`, o ${hours/2} día${hours/2>1?'s':''} de 2 horas seguidas`:''}.` };
+}
+
+/* =====================================================================
+   ESTADO
+   ===================================================================== */
+const S = {
+  db:null, userCap:null, isOwner:false,
+  students:{}, bookings:{}, waitlist:{}, cfg:structuredClone(DEFAULT_CFG), auth:undefined, alertsDone:{},
+  ver:0, memo:{}, impBySlot:{}, tutByDate:{}, bk:[],
+  logged:false, view:'calendario', cal:{ mode:'semana', date: todayS() },
+  subs:[], loaded:{students:false,bookings:false,waitlist:false}
+};
+function mergeCfg(stored){
+  const c = structuredClone(DEFAULT_CFG);
+  if (!stored) return c;
+  for (const k of Object.keys(stored)){
+    if (k==='plans' || k==='tpl') c[k] = Object.assign({}, c[k], stored[k]);
+    else c[k] = stored[k];
+  }
+  for (const p of Object.keys(DEFAULT_CFG.plans)) c.plans[p] = Object.assign({}, DEFAULT_CFG.plans[p], c.plans[p]);
+  return c;
+}
+function reindex(){
+  S.ver++; S.memo = {};
+  S.bk = Object.values(S.bookings);
+  S.impBySlot = {}; S.tutByDate = {};
+  for (const b of S.bk){
+    if (b.type==='impulso'){ for (const k of b.slots||[]) (S.impBySlot[k] = S.impBySlot[k] || []).push(b); }
+    else if (b.date){ (S.tutByDate[b.date] = S.tutByDate[b.date] || []).push(b); }
+  }
+}
+const isActive = b => b.status==='pre' || b.status==='conf';
+const stu = id => S.students[id] || { name:'(alumno eliminado)', phone:'', tutor:'' };
+const last4 = p => String(p||'').replace(/\D/g,'').slice(-4) || '0000';
+const labelOf = s => `${s.name} ${last4(s.phone)}`;
+const planRank = p => p==='plus' ? 2 : p==='basico' ? 1 : 0;
+const planName = p => S.cfg.plans[p]?.name || 'Sin plan';
+
+/* ---------- ocupación ---------- */
+function occ(d, h, excludeId){
+  const t = slotType(dowOf(d), h);
+  if (t==='imp'){
+    const key = dowOf(d)+'-'+h;
+    return (S.impBySlot[key]||[]).filter(b => isActive(b) && b.start<=d && d<=b.end && b.id!==excludeId);
+  }
+  if (t==='tut' || t==='mix') return (S.tutByDate[d]||[]).filter(b => b.hour===h && isActive(b) && b.id!==excludeId);
+  return [];
+}
+const capOf = t => t==='imp' ? S.cfg.capImpulso : S.cfg.capTutoria;
+function minFreeIn(key, a, b, excludeId){
+  let min = Infinity, worst = null;
+  for (const d of occurrences(key, a, b)){
+    const f = S.cfg.capImpulso - occ(d, kHour(key), excludeId).length;
+    if (f < min){ min = f; worst = d; }
+  }
+  return { free: min===Infinity ? S.cfg.capImpulso : min, worst };
+}
+/* Primer día (desde 'from') en que el horario tiene al menos un lugar */
+function nextFree(key, from){
+  const memoK = 'nf|'+key+'|'+from;
+  if (memoK in S.memo) return S.memo[memoK];
+  let prevOcc = null, res = null;
+  const limit = addDays(from, 7*40);
+  for (const d of occurrences(key, from, limit)){
+    const o = occ(d, kHour(key));
+    if (o.length < S.cfg.capImpulso){
+      const leaving = prevOcc ? prevOcc.filter(b => b.end < d) : [];
+      res = { date:d, leaving }; break;
+    }
+    prevOcc = o;
+  }
+  S.memo[memoK] = res; return res;
+}
+
+/* ---------- reglas de pago ---------- */
+function firstClass(b){
+  if (b.type==='impulso'){
+    const dows = new Set(b.slots.map(kDow)); let d = b.start;
+    for (let i=0;i<7;i++){
+      const w = dowOf(d);
+      if (dows.has(w)){ const dt = pd(d); dt.setHours(Math.min(...b.slots.filter(k=>kDow(k)===w).map(kHour))); return dt; }
+      d = addDays(d,1);
+    }
+    return pd(b.start);
+  }
+  const dt = pd(b.date); dt.setHours(b.hour); return dt;
+}
+/* Fecha de la primera clase de esos horarios a partir de 'from' (si afterMs > 0, la clase debe empezar después de ese momento) */
+function firstClassDate(slots, from, afterMs){
+  if (!slots || !slots.length) return null;
+  let d = from;
+  for (let i=0;i<15;i++){
+    const w = dowOf(d);
+    const hs = slots.filter(k => kDow(k)===w).map(kHour);
+    if (hs.length){ const dt = pd(d); dt.setHours(Math.min(...hs)); if (!afterMs || dt.getTime() > afterMs) return d; }
+    d = addDays(d,1);
+  }
+  return null;
+}
+/* Inicio del mes al confirmar el pago: siguiente clase después del pago en la que caben todos sus horarios un mes completo */
+function startAfterPayment(b){
+  const now = Date.now();
+  let s = firstClassDate(b.slots, todayS(), now);
+  const limit = addDays(b.start > todayS() ? b.start : todayS(), 60);
+  while (s && s <= limit){
+    const e = periodEnd(s);
+    if (b.slots.every(k => minFreeIn(k, s, e, b.id).free >= 1)) return s;
+    s = firstClassDate(b.slots, addDays(s,1), 0);
+  }
+  return firstClassDate(b.slots, todayS(), now) || b.start;
+}
+const deadline = b => new Date(firstClass(b).getTime() - H48);
+const isOverdue = b => b.status==='pre' && Date.now() > deadline(b).getTime();
+function renewalDeadline(b){
+  const nb = { type:'impulso', slots:b.slots, start:addDays(b.end,1) };
+  return deadline(nb);
+}
+const renewalOf = b => S.bk.find(x => x.renewalOf===b.id && x.status!=='cancel');
+function activePlan(studentId, d){
+  return S.bk.find(b => b.type==='impulso' && b.status==='conf' && b.studentId===studentId && b.start<=d && d<=b.end);
+}
+function currentPlanBooking(studentId){
+  const T = todayS();
+  return S.bk.filter(b => b.type==='impulso' && isActive(b) && b.studentId===studentId && b.end>=T).sort((a,b)=>a.start<b.start?-1:1)[0];
+}
+function reposUsed(planB){
+  return S.bk.filter(b => b.type==='repo' && b.studentId===planB.studentId && b.status==='conf' && b.date>=planB.start && b.date<=planB.end).length;
+}
+
+/* ---------- prioridad lista de espera ---------- */
+function prioCmp(a, b){
+  const sa = stu(a.studentId), sb = stu(b.studentId);
+  const pr = planRank(sb.plan) - planRank(sa.plan);
+  const an = (sa.since||'9999') < (sb.since||'9999') ? -1 : (sa.since||'9999') > (sb.since||'9999') ? 1 : 0;
+  const cr = (a.createdAt||'') < (b.createdAt||'') ? -1 : 1;
+  if (S.cfg.priority==='antiguedad') return an || pr || cr;
+  return pr || an || cr;
+}
+const activeWait = () => Object.values(S.waitlist).filter(w => w.status==='activa').sort(prioCmp);
+const candidatesFor = key => activeWait().filter(w => (w.slots||[]).includes(key));
+/* Fecha más próxima en que TODOS los horarios deseados tienen lugar durante un mes completo */
+function availableFrom(w){
+  const memoK = 'af|'+w.id;
+  if (memoK in S.memo) return S.memo[memoK];
+  const T = todayS();
+  let earliest = addDays(T, 2);
+  if (w.from && w.from > earliest) earliest = w.from;
+  const slots = w.slots||[];
+  if (!slots.length){ S.memo[memoK] = null; return null; }
+  const cands = new Set([earliest]);
+  for (const k of slots) for (const b of (S.impBySlot[k]||[])) if (isActive(b) && b.end >= earliest) cands.add(addDays(b.end,1));
+  const sorted = [...cands].filter(d => d >= earliest && d <= addDays(T, 180)).sort();
+  let res = null;
+  for (const d of sorted){
+    const e = periodEnd(d);
+    if (slots.every(k => minFreeIn(k, d, e).free >= 1)){ res = d; break; }
+  }
+  S.memo[memoK] = res; return res;
+}
+
+/* ---------- textos ---------- */
+function fmtSlots(keys){
+  const by = {};
+  [...keys].sort(keySort).forEach(k => (by[kDow(k)] = by[kDow(k)] || []).push(kHour(k)));
+  return Object.keys(by).map(d => {
+    const hs = by[d].sort((a,b)=>a-b), parts = [];
+    let s = hs[0], p = hs[0];
+    for (let i=1;i<=hs.length;i++){
+      if (hs[i] === p+1){ p = hs[i]; continue; }
+      parts.push(`${hourShort(s)}–${hourShort(p+1)}`); s = p = hs[i];
+    }
+    return `${DOWS[d]} ${parts.join(' y ')}`;
+  }).join(', ');
+}
+const planLabel = p => { const n = planName(p); return S.cfg.plans[p] ? (/^plan\b/i.test(n) ? n : 'Plan ' + n) : 'Impulso Académico'; };
+const planOfBooking = b => b.type==='impulso' ? planLabel(b.plan) : b.type==='tutoria' ? 'Tutoría' : 'Reposición';
+function ofertaMsg(w, av){
+  const s = stu(w.studentId), fake = { type:'impulso', slots:w.slots, start:av };
+  return fill(S.cfg.tpl.oferta, { alumno:s.name, tutor:s.tutor||'', plan:planLabel(s.plan), horario:fmtSlots(w.slots), fecha:fmtD(av), limite:fmtDT(deadline(fake)) });
+}
+function ctxFor(b, extra){
+  const s = stu(b.studentId);
+  const c = { alumno:s.name, tutor:s.tutor||'', plan:planOfBooking(b), fin:b.end?fmtD(b.end):'', hora:b.hour!=null?hourLbl(b.hour):'' };
+  if (b.type==='impulso'){ c.horario = fmtSlots(b.slots); c.fecha = fmtD(b.start); }
+  else { c.horario = `${fmtD(b.date)} ${hourLbl(b.hour)}`; c.fecha = fmtD(b.date); }
+  c.limite = fmtDT(deadline(b));
+  return Object.assign(c, extra||{});
+}
+const fill = (tpl, ctx) => String(tpl||'').replace(/\{(\w+)\}/g, (m,k) => ctx[k] ?? m);
+function waNumber(phone){
+  const d = String(phone||'').replace(/\D/g,'');
+  if (d.length===10) return '52'+d;
+  return d;
+}
+const waLink = (phone, text) => `https://wa.me/${waNumber(phone)}?text=${encodeURIComponent(text)}`;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function waBtn(phone, text, label='WhatsApp', sm=true){
+  if (!String(phone||'').replace(/\D/g,'')) return `<span class="small muted">Sin WhatsApp registrado</span>`;
+  return `<a class="btn wa${sm?' sm':''}" target="_blank" rel="noopener" href="${esc(waLink(phone,text))}">${esc(label)}</a>`;
+}
+function statusChip(b){
+  if (b.status==='cancel') return `<span class="chip cancel">Cancelada</span>`;
+  if (b.type==='repo'){
+    if (b.status==='desplazada') return `<span class="chip venc">Desplazada</span>`;
+    return firstClass(b).getTime()-Date.now() <= H48 ? `<span class="chip firm">Reposición firme</span>` : `<span class="chip tent">Reposición tentativa</span>`;
+  }
+  if (b.status==='pre') return isOverdue(b) ? `<span class="chip venc">Prereserva vencida</span>` : `<span class="chip pre">Prereserva</span>`;
+  if (b.type==='impulso' && b.end < todayS()) return `<span class="chip cancel">Terminado</span>`;
+  return `<span class="chip conf">Pagado</span>`;
+}
+const typeChip = b => b.type==='impulso' ? `<span class="chip imp">Impulso</span>` : b.type==='tutoria' ? `<span class="chip tut">Tutoría</span>` : `<span class="chip repo">Reposición</span>`;
+const planChip = p => p==='plus' ? `<span class="chip plus">${esc(planName(p))}</span>` : p==='basico' ? `<span class="chip basico">${esc(planName(p))}</span>` : `<span class="chip cancel">Sin plan</span>`;
+
+/* =====================================================================
+   ALERTAS
+   ===================================================================== */
+function computeAlerts(){
+  if ('alerts' in S.memo) return S.memo.alerts;
+  const now = Date.now(), T = todayS(), out = [];
+  for (const b of S.bk){
+    const s = stu(b.studentId);
+    if (b.status==='pre'){
+      const dl = deadline(b).getTime();
+      if (dl < now){
+        out.push({ key:`venc-${b.id}`, sev:'crit', cat:'pagos', bid:b.id, title:`Prereserva vencida · ${labelOf(s)}`,
+          body:`${b.type==='impulso'?'Impulso '+fmtSlots(b.slots):(b.type==='tutoria'?'Tutoría ':'')+fmtD(b.date)+' '+hourLbl(b.hour||0)}. El pago debía llegar antes del ${fmtDT(new Date(dl))}. Libera el lugar y ofrécelo a quien está en espera.`,
+          wa:{ tpl:'vencida' }, acts:['liberar','abrir'], keys: b.type==='impulso' ? b.slots : [] });
+      } else if (dl - now < 24*3600e3){
+        out.push({ key:`pago24-${b.id}`, sev:'warn', cat:'pagos', bid:b.id, title:`Pago pendiente vence en ${relH(dl-now)} · ${labelOf(s)}`,
+          body:`Límite: ${fmtDT(new Date(dl))}. ${b.type==='impulso'?'Impulso '+fmtSlots(b.slots)+' desde '+fmtD(b.start):'Tutoría '+fmtD(b.date)+' '+hourLbl(b.hour)}.`,
+          wa:{ tpl: b.type==='tutoria' ? 'tutoria' : 'pago' }, acts:['pagar','abrir'] });
+      } else {
+        out.push({ key:`pre-${b.id}`, sev:'info', cat:'pagos', bid:b.id, title:`Prereserva en espera de pago · ${labelOf(s)}`,
+          body:`Límite: ${fmtDT(new Date(dl))} (faltan ${relH(dl-now)}).`, wa:{ tpl: b.type==='tutoria' ? 'tutoria' : 'pago' }, acts:['pagar','abrir'] });
+      }
+    }
+    if (b.type==='impulso' && b.status==='conf' && b.end >= T && daysBetween(T, b.end) <= S.cfg.renewDays && !renewalOf(b)){
+      const nd = renewalDeadline(b).getTime();
+      if (nd < now){
+        out.push({ key:`norenov-${b.id}`, sev:'crit', cat:'renov', bid:b.id, title:`No pagó la renovación a tiempo · ${labelOf(s)}`,
+          body:`Su plan termina el ${fmtD(b.end)}. El lugar en ${fmtSlots(b.slots)} queda libre desde el ${fmtD(addDays(b.end,1))}. Ofrécelo a la lista de espera o registra la renovación como excepción.`,
+          wa:{ tpl:'renovacion', ctx:{ limite: fmtDT(new Date(nd)) } }, acts:['renovar','abrir'], keys:b.slots, freeFrom:addDays(b.end,1) });
+      } else {
+        out.push({ key:`renov-${b.id}`, sev:'warn', cat:'renov', bid:b.id, title:`Plan termina el ${fmtD(b.end)} · ${labelOf(s)}`,
+          body:`Para conservar ${fmtSlots(b.slots)} debe pagar la renovación antes del ${fmtDT(new Date(nd))}.`,
+          wa:{ tpl:'renovacion', ctx:{ limite: fmtDT(new Date(nd)) } }, acts:['renovar','abrir'] });
+      }
+    }
+    if (b.type==='repo' && b.status==='desplazada' && b.date >= T){
+      out.push({ key:`despl-${b.id}`, sev:'warn', cat:'repo', bid:b.id, title:`Reprogramar reposición · ${labelOf(s)}`,
+        body:`La reposición del ${fmtD(b.date)} ${hourLbl(b.hour)} cedió su lugar a una tutoría pagada. Busca otro viernes con lugar.`,
+        wa:{ tpl:'desplazada' }, acts:['abrir'] });
+    }
+  }
+  /* Lista de espera: ¿ya hay lugar? */
+  const aw = activeWait();
+  aw.forEach((w, i) => {
+    const av = availableFrom(w);
+    if (av && av <= addDays(T, 21)){
+      const s = stu(w.studentId);
+      const fake = { type:'impulso', slots:w.slots, start:av };
+      out.push({ key:`esp-${w.id}-${av}`, sev:'warn', cat:'espera', wid:w.id, title:`Hay lugar para ${labelOf(s)} (prioridad #${i+1})`,
+        body:`Sus horarios (${fmtSlots(w.slots)}) tienen lugar durante un mes completo a partir del ${fmtD(av)}. Pago límite si acepta: ${fmtDT(deadline(fake))}.`,
+        waRaw: ofertaMsg(w, av), phone:s.phone, acts:['ofrecer'] , av });
+    }
+  });
+  /* Cupo de Impulso en las próximas semanas */
+  const end = addDays(T, 7*S.cfg.lookWeeks - 1);
+  for (const key of IMP_KEYS){
+    const ds_ = [...occurrences(key, T, end)];
+    const frees = ds_.map(d => ({ d, f: S.cfg.capImpulso - occ(d, kHour(key)).length }));
+    const fulls = frees.filter(x => x.f <= 0);
+    const lows = frees.filter(x => x.f > 0 && x.f <= S.cfg.lowThreshold);
+    const lbl = `${DOWL[kDow(key)]} ${rangeLbl(kHour(key))}`;
+    const waiting = candidatesFor(key).length;
+    if (fulls.length){
+      const nf = nextFree(key, fulls[0].d);
+      const lv = nf && nf.leaving.length ? ` (termina el plan de ${nf.leaving.map(b=>labelOf(stu(b.studentId))).join(', ')})` : '';
+      out.push({ key:`full-${key}-${fulls[0].d}`, sev:'info', cat:'cupo', title:`${lbl}: grupo lleno`,
+        body:`Lleno desde el ${fmtD(fulls[0].d)}${nf ? `. Primer lugar libre: ${fmtD(nf.date)}${lv}` : '. Sin lugar en los próximos meses'}.${waiting?` ${waiting} en lista de espera para este horario.`:''}`,
+        acts:['verslot'], slotD: fulls[0].d, slotH: kHour(key) });
+    } else if (lows.length){
+      out.push({ key:`low-${key}-${lows[0].d}`, sev:'info', cat:'cupo', title:`${lbl}: quedan ${lows[0].f} lugar${lows[0].f>1?'es':''}`,
+        body:`En la semana del ${fmtD(mondayOf(lows[0].d))}.${waiting?` ${waiting} en lista de espera para este horario.`:''}`, acts:['verslot'], slotD: lows[0].d, slotH: kHour(key) });
+    }
+  }
+  S.memo.alerts = out; return out;
+}
+const pendingCount = () => computeAlerts().filter(a => (a.sev==='crit'||a.sev==='warn') && !S.alertsDone[a.key]).length;
+
+/* =====================================================================
+   SEGURIDAD: hash de contraseña (PBKDF2-SHA256)
+   ===================================================================== */
+const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
+async function pbkdf2(pass, saltHex, iter){
+  const salt = new Uint8Array(saltHex.match(/../g).map(h => parseInt(h,16)));
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveBits']);
+  return hex(await crypto.subtle.deriveBits({ name:'PBKDF2', hash:'SHA-256', salt, iterations:iter }, key, 256));
+}
+async function makeAuth(email, pass, initial){
+  const salt = hex(crypto.getRandomValues(new Uint8Array(16)).buffer);
+  const iter = 150000;
+  return { email: email.toLowerCase(), salt, iter, hash: await pbkdf2(pass, salt, iter), initial: !!initial, changedAt: new Date().toISOString() };
+}
+function pwChecks(p){
+  return [
+    ['Mínimo 8 caracteres', p.length >= 8],
+    ['Una mayúscula', /[A-ZÁÉÍÓÚÑ]/.test(p)],
+    ['Una minúscula', /[a-záéíóúñ]/.test(p)],
+    ['Un número', /\d/.test(p)],
+    ['Un carácter especial (@ . _ ! # …)', /[^A-Za-z0-9ÁÉÍÓÚÑáéíóúñ\s]/.test(p)]
+  ];
+}
+function lsGet(k){ try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } }
+function lsSet(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+function ssGet(k){ try { return JSON.parse(sessionStorage.getItem(k)); } catch(e){ return null; } }
+function ssSet(k,v){ try { if (v===null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+let memSession = null;
+function sessionValid(){ const s = ssGet('ia-sess') || memSession; return !!(s && s.exp > Date.now()); }
+function touchSession(){ const s = { exp: Date.now() + IDLE_MS }; memSession = s; ssSet('ia-sess', s); }
+
+/* =====================================================================
+   BASE DE DATOS
+   ===================================================================== */
+async function dbSet(col, id, data){
+  try { await S.db.collection(col).doc(id).set(data); return true; }
+  catch(e){ toast(dbErr(e), true); return false; }
+}
+async function dbUpdate(col, id, data){
+  try { await S.db.collection(col).doc(id).update(data); return true; }
+  catch(e){ toast(dbErr(e), true); return false; }
+}
+async function dbDelete(col, id){
+  try { await S.db.collection(col).doc(id).delete(); return true; }
+  catch(e){ toast(dbErr(e), true); return false; }
+}
+function newId(col){ return S.db.collection(col).doc().id; }
+
+/* Almacenamiento local (cuando el archivo se abre fuera de claude.ai).
+   Misma interfaz que usa la app: collection(col).doc(id).set/update/delete y collection(col).onSnapshot */
+function localDB(){
+  const KEY = 'ia-agenda-db-v1';
+  const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch(e){ return {}; } };
+  let data = read();
+  const listeners = {};
+  const persist = () => {
+    try { localStorage.setItem(KEY, JSON.stringify(data)); }
+    catch(e){ const err = new Error('quota'); err.code = 'quota_exceeded'; throw err; }
+  };
+  const snap = col => { const docs = Object.entries(data[col]||{}).map(([id,d]) => ({ id, exists:true, data:() => d })); return { docs, size:docs.length, empty:!docs.length, docChanges:() => [] }; };
+  const emit = col => (listeners[col]||[]).forEach(fn => setTimeout(() => fn(snap(col)), 0));
+  const rid = () => Date.now().toString(36) + [...crypto.getRandomValues(new Uint8Array(8))].map(b => (b%36).toString(36)).join('');
+  const merge = (t, s) => { for (const k of Object.keys(s)){ const v = s[k]; if (v && typeof v==='object' && !Array.isArray(v) && t[k] && typeof t[k]==='object' && !Array.isArray(t[k])) merge(t[k], v); else t[k] = v; } };
+  window.addEventListener('storage', e => { if (e.key===KEY){ data = read(); Object.keys(listeners).forEach(emit); } });
+  return {
+    local: true,
+    collection(col){
+      return {
+        doc(id){
+          id = id || rid();
+          return { id,
+            async set(d){ data[col] = data[col] || {}; data[col][id] = JSON.parse(JSON.stringify(d)); persist(); emit(col); },
+            async update(d){ if (!data[col] || !data[col][id]){ const e = new Error('missing'); e.code = 'invalid_argument'; throw e; } merge(data[col][id], JSON.parse(JSON.stringify(d))); persist(); emit(col); },
+            async delete(){ if (data[col]) delete data[col][id]; persist(); emit(col); }
+          };
+        },
+        onSnapshot(fn){ (listeners[col] = listeners[col] || []).push(fn); setTimeout(() => fn(snap(col)), 0); return () => { listeners[col] = listeners[col].filter(f => f!==fn); }; }
+      };
+    }
+  };
+}
+function dbErr(e){
+  const c = e && e.code;
+  if (c==='invalid_argument') return S.local ? 'No se encontró el registro; recarga la página e inténtalo de nuevo.' : 'No se pudo guardar: tu cuenta no tiene permiso de edición en esta página.';
+  if (c==='quota_exceeded' && S.local) return 'El navegador ya no tiene espacio para guardar. Descarga un respaldo y avísame para revisarlo.';
+  if (c==='quota_exceeded') return 'Se llenó el espacio de la base de datos. Descarga un respaldo y borra registros antiguos.';
+  if (c==='resource_exhausted') return 'Demasiadas operaciones seguidas. Espera unos segundos e inténtalo de nuevo.';
+  return 'No se pudo guardar. Revisa tu conexión e inténtalo de nuevo.';
+}
+function subscribeData(){
+  if (S.subs.length > 1) return;
+  for (const col of ['students','bookings','waitlist']){
+    S.subs.push(S.db.collection(col).onSnapshot(snap => {
+      const m = {};
+      snap.docs.forEach(d => { m[d.id] = Object.assign({ id:d.id }, d.data()); });
+      S[col] = m; S.loaded[col] = true;
+      reindex(); onData();
+    }, err => { toast('Se perdió la conexión con la base de datos. Recarga la página.', true); }));
+  }
+}
+function subscribeConfig(){
+  S.subs.push(S.db.collection('config').onSnapshot(snap => {
+    let auth = null, main = null, alerts = null;
+    snap.docs.forEach(d => { if (d.id==='auth') auth = d.data(); if (d.id==='main') main = d.data(); if (d.id==='alerts') alerts = d.data(); });
+    S.auth = auth; S.cfg = mergeCfg(main); S.alertsDone = (alerts && alerts.done) || {};
+    S.memo = {};
+    if (S.logged) onData(); else if (!loginRendered) renderLogin();
+  }, err => renderLogin('No se pudo leer la configuración. Recarga la página.')));
+}
+let dataTimer = null;
+function onData(){
+  clearTimeout(dataTimer);
+  dataTimer = setTimeout(() => { if (!S.logged) return; renderMain(); refreshModal(); }, 60);
+}
+
+/* =====================================================================
+   UI BÁSICA
+   ===================================================================== */
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+let toastT = null;
+function toast(msg, bad){
+  const t = $('#toast'); t.textContent = msg; t.className = 'toast' + (bad?' bad':''); t.hidden = false;
+  clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, bad ? 6000 : 3000);
+}
+let modalState = null;
+function openModal(title, bodyHtml, footHtml, opts={}){
+  modalState = opts;
+  $('#modal-root').innerHTML = `<div class="overlay" data-act="overlay"><div class="modal${opts.wide?' wide':''}" role="dialog" aria-modal="true" aria-labelledby="m-title">
+    <div class="modal-h"><div class="stack" style="gap:4px"><h3 id="m-title">${title}</h3>${opts.sub?`<span class="small muted">${opts.sub}</span>`:''}</div><button class="x" data-act="close" aria-label="Cerrar">×</button></div>
+    <div class="modal-b" id="m-body">${bodyHtml}</div>${footHtml?`<div class="modal-f" id="m-foot">${footHtml}</div>`:''}</div></div>`;
+  const f = $('#modal-root input:not([type=hidden]),#modal-root select'); if (f && opts.focus) f.focus();
+}
+function closeModal(){ $('#modal-root').innerHTML = ''; modalState = null; }
+function refreshModal(){
+  if (!modalState || !modalState.refresh) return;
+  const a = document.activeElement;
+  if (a && $('#modal-root').contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) return;
+  modalState.refresh();
+}
+function askConfirm(text, okLabel, fn, danger=true){
+  $('#confirm-root').innerHTML = `<div class="overlay"><div class="modal" role="alertdialog" aria-modal="true" style="width:min(420px,100%)">
+    <div class="modal-b"><p style="margin:0;font-weight:700">${text}</p></div>
+    <div class="modal-f"><button class="btn" id="cf-no">Volver</button><button class="btn ${danger?'danger':'primary'}" id="cf-ok">${esc(okLabel)}</button></div></div></div>`;
+  $('#cf-no').onclick = () => $('#confirm-root').innerHTML = '';
+  $('#cf-ok').onclick = async () => { $('#confirm-root').innerHTML = ''; await fn(); };
+  $('#cf-ok').focus();
+}
+async function copyText(text){
+  try { await navigator.clipboard.writeText(text); toast('Copiado'); }
+  catch(e){ toast('No se pudo copiar automáticamente. Selecciona el texto y cópialo.', true); }
+}
+async function saveFile(filename, data){
+  if (!window.claude || !window.claude.use){
+    /* Archivo independiente: descarga normal del navegador */
+    const type = filename.endsWith('.json') ? 'application/json' : 'text/html';
+    const url = URL.createObjectURL(new Blob([data], { type: type + ';charset=utf-8' }));
+    const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return true;
+  }
+  const dl = await claude.use('downloads');
+  if (!dl){ toast('La descarga no está disponible en esta vista. Usa “Copiar”.', true); return false; }
+  try { await dl.save({ filename, data }); return true; }
+  catch(e){ if (e && e.code!=='declined') toast('No se pudo descargar el archivo.', true); return false; }
+}
+async function importBackup(file){
+  let j;
+  try { j = JSON.parse(await file.text()); } catch(e){ toast('El archivo no es un respaldo válido (.json).', true); return; }
+  if (!j || typeof j!=='object' || !j.students || !j.bookings || !j.waitlist){ toast('El archivo no tiene el formato de respaldo de esta agenda.', true); return; }
+  const n = Object.keys(j.students).length, m = Object.keys(j.bookings).length, w = Object.keys(j.waitlist).length;
+  askConfirm(`El respaldo del ${j.exportedAt ? fmtDT(new Date(j.exportedAt)) : '(sin fecha)'} tiene ${n} alumnos, ${m} reservas y ${w} registros de lista de espera. Los registros con el mismo identificador se reemplazarán; los demás se conservan. La contraseña no cambia.`, 'Importar', async () => {
+    let ok = 0, fail = 0;
+    for (const col of ['students','bookings','waitlist']){
+      for (const [id, doc] of Object.entries(j[col])){
+        const d = Object.assign({}, doc); delete d.id;
+        if (!/^[A-Za-z0-9_\-.~:@+]{1,200}$/.test(id)){ fail++; continue; }
+        try { await S.db.collection(col).doc(id).set(d); ok++; } catch(e){ fail++; }
+      }
+    }
+    if (j.config){ const c = Object.assign({}, j.config); try { await S.db.collection('config').doc('main').set(c); } catch(e){ fail++; } }
+    toast(fail ? `Importados ${ok} registros; ${fail} no se pudieron importar.` : `Respaldo importado: ${ok} registros.`, !!fail);
+  }, false);
+}
+
+/* =====================================================================
+   LOGIN
+   ===================================================================== */
+let loginRendered = false;
+function renderLogin(errMsg){
+  loginRendered = true;
+  const prevEmail = $('#lg-email') ? $('#lg-email').value : '', prevPass = $('#lg-pass') ? $('#lg-pass').value : '';
+  const lock = lsGet('ia-lock');
+  const locked = lock && lock.until > Date.now();
+  $('#app').innerHTML = `<div class="login wrap"><form class="login-card" id="login-form" novalidate>
+    <div class="brand"><span class="brand-mark">IA</span><span>Impulso Académico<small>Agenda privada</small></span></div>
+    <h2>Iniciar sesión</h2>
+    ${errMsg ? `<div class="note bad">${esc(errMsg)}</div>` : ''}
+    <div class="field"><label for="lg-email">Usuario (correo)</label><input id="lg-email" type="email" autocomplete="username" required></div>
+    <div class="field"><label for="lg-pass">Contraseña</label><input id="lg-pass" type="password" autocomplete="current-password" required></div>
+    <label class="row small"><input type="checkbox" id="lg-show"> Mostrar contraseña</label>
+    <div class="err" id="lg-err" role="alert">${locked ? `Demasiados intentos. Intenta de nuevo a las ${hm(new Date(lock.until))}.` : ''}</div>
+    <button class="btn primary" type="submit" id="lg-btn" ${(!S.db||S.auth===undefined||locked)?'disabled':''}>Entrar</button>
+    <div id="lg-owner"></div>
+  </form></div>`;
+  $('#lg-email').value = prevEmail; $('#lg-pass').value = prevPass;
+  $('#lg-show').onchange = e => $('#lg-pass').type = e.target.checked ? 'text' : 'password';
+  $('#login-form').onsubmit = doLogin;
+  if (S.isOwner){
+    $('#lg-owner').innerHTML = `<button type="button" class="btn ghost sm" id="lg-reset">Olvidé la contraseña: restablecer la inicial</button>`;
+    $('#lg-reset').onclick = () => askConfirm('La contraseña volverá a la inicial y tendrás que cambiarla al entrar. ¿Continuar?', 'Restablecer', async () => {
+      if (await dbDelete('config','auth')){ toast('Contraseña restablecida a la inicial'); lsSet('ia-lock', null); }
+    }, false);
+  }
+}
+async function doLogin(e){
+  e.preventDefault();
+  const email = $('#lg-email').value.trim().toLowerCase(), pass = $('#lg-pass').value;
+  const errEl = $('#lg-err');
+  const lock = lsGet('ia-lock') || { fails:0, until:0 };
+  if (lock.until > Date.now()) return;
+  $('#lg-btn').disabled = true; errEl.textContent = 'Verificando…';
+  let ok = false;
+  try {
+    if (!S.auth){
+      ok = email === INITIAL_EMAIL && pass === INITIAL_PASS;
+      if (ok) await S.db.collection('config').doc('auth').set(await makeAuth(INITIAL_EMAIL, INITIAL_PASS, true));
+    } else {
+      ok = email === S.auth.email && (await pbkdf2(pass, S.auth.salt, S.auth.iter)) === S.auth.hash;
+    }
+  } catch(err){ errEl.textContent = 'No se pudo verificar. Revisa tu conexión.'; $('#lg-btn').disabled = false; return; }
+  if (!ok){
+    lock.fails = (lock.fails||0) + 1;
+    if (lock.fails >= 5){ lock.until = Date.now() + 5*60e3; lock.fails = 0; }
+    lsSet('ia-lock', lock);
+    errEl.textContent = lock.until > Date.now() ? `Demasiados intentos. Intenta de nuevo a las ${hm(new Date(lock.until))}.` : 'Usuario o contraseña incorrectos.';
+    $('#lg-btn').disabled = lock.until > Date.now();
+    return;
+  }
+  lsSet('ia-lock', null);
+  touchSession();
+  enterApp();
+}
+function enterApp(){
+  S.logged = true;
+  subscribeData();
+  const h = location.hash.slice(1);
+  if (['calendario','alertas','alumnos','espera','reportes','ajustes'].includes(h)) S.view = h;
+  renderShell();
+}
+function logout(){
+  ssSet('ia-sess', null); memSession = null; S.logged = false; closeModal(); renderLogin();
+}
+setInterval(() => { if (S.logged && !sessionValid()) { logout(); toast('Sesión cerrada por inactividad'); } }, 60e3);
+let lastTouch = 0;
+['click','keydown'].forEach(ev => document.addEventListener(ev, () => { if (S.logged && Date.now()-lastTouch > 60e3){ lastTouch = Date.now(); touchSession(); } }, true));
+
+/* =====================================================================
+   SHELL
+   ===================================================================== */
+const VIEWS = [['calendario','Calendario'],['alertas','Alertas'],['alumnos','Alumnos'],['espera','Lista de espera'],['reportes','Reportes'],['ajustes','Ajustes']];
+function renderShell(){
+  loginRendered = false;
+  $('#app').innerHTML = `<header class="top"><div class="wrap">
+      <div class="brand"><span class="brand-mark">IA</span><span>Impulso Académico<small>Agenda</small></span></div>
+      <nav class="tabs" id="tabs" aria-label="Secciones"></nav>
+      <button class="btn sm logout" data-act="logout">Cerrar sesión</button>
+    </div></header>
+    <div id="banner"></div>
+    <main class="wrap" id="main"></main>`;
+  renderMain();
+}
+function renderTabs(){
+  const n = pendingCount();
+  $('#tabs').innerHTML = VIEWS.map(([k,l]) => `<button class="tab" data-act="view" data-v="${k}" ${S.view===k?'aria-current="page"':''}>${l}${k==='alertas'&&n?`<span class="badge">${n}</span>`:''}</button>`).join('');
+  const lastBk = lsGet('ia-last-backup');
+  const needBk = S.local && (!lastBk || Date.now() - lastBk > 7*864e5);
+  $('#banner').innerHTML = (S.auth && S.auth.initial
+    ? `<div class="banner"><div class="wrap">Estás usando la contraseña inicial. Cámbiala para proteger la agenda. <button class="btn sm" data-act="view" data-v="ajustes">Cambiar contraseña</button></div></div>` : '')
+    + (needBk ? `<div class="banner"><div class="wrap">Los datos se guardan solo en este navegador y en esta computadora. ${lastBk ? `Último respaldo: ${fmtDT(new Date(lastBk))}.` : 'Aún no has descargado un respaldo.'} <button class="btn sm" data-act="backup">Descargar respaldo</button></div></div>` : '');
+}
+function renderMain(){
+  if (!S.logged || !$('#main')) return;
+  renderTabs();
+  const loading = !S.loaded.students || !S.loaded.bookings || !S.loaded.waitlist;
+  if (loading){ $('#main').innerHTML = `<div class="empty">Cargando datos…</div>`; return; }
+  const fn = { calendario:viewCalendar, alertas:viewAlerts, alumnos:viewStudents, espera:viewWait, reportes:viewReports, ajustes:viewSettings }[S.view];
+  const keepScroll = window.scrollY;
+  $('#main').innerHTML = fn();
+  if (S.view==='reportes') bindReports();
+  if (S.view==='ajustes') bindSettings();
+  window.scrollTo(0, keepScroll);
+}
+function go(view){
+  S.view = view;
+  try { history.replaceState(null, '', '#'+view); } catch(e){}
+  renderMain(); window.scrollTo(0,0);
+}
+
+/* =====================================================================
+   CALENDARIO
+   ===================================================================== */
+function viewCalendar(){
+  const c = S.cal, T = todayS();
+  let title = '';
+  if (c.mode==='dia') title = `${DOWL[dowOf(c.date)]} ${pd(c.date).getDate()} de ${MESL[pd(c.date).getMonth()]} ${pd(c.date).getFullYear()}`;
+  if (c.mode==='semana'){ const m = mondayOf(c.date), e = addDays(m,5); title = `Semana del ${pd(m).getDate()} ${MES[pd(m).getMonth()]} al ${pd(e).getDate()} ${MES[pd(e).getMonth()]} ${pd(e).getFullYear()}`; }
+  if (c.mode==='mes'){ const d = pd(c.date); title = `${MESL[d.getMonth()][0].toUpperCase()+MESL[d.getMonth()].slice(1)} ${d.getFullYear()}`; }
+  const alerts = computeAlerts().filter(a => !S.alertsDone[a.key]);
+  const pend = S.bk.filter(b => b.status==='pre').length;
+  const crit = alerts.filter(a => a.sev==='crit').length;
+  const renov = alerts.filter(a => a.cat==='renov').length;
+  const wait = activeWait().length;
+  const jumps = [['','Ir a…'],['w0','Esta semana'],['w1','Próxima semana'],['w2','En 2 semanas'],['m0','Este mes'],['m1','Mes siguiente'],['m2','En 2 meses'],['m3','En 3 meses'],['m4','En 4 meses'],['m6','En 6 meses']];
+  let body = c.mode==='semana' ? calWeek() : c.mode==='mes' ? calMonth() : calDay();
+  return `
+  <div class="kpis">
+    <button class="kpi ${crit?'hot':''}" data-act="view" data-v="alertas"><b>${crit}</b><span>Urgentes (vencidas / sin renovar)</span></button>
+    <button class="kpi" data-act="view" data-v="alertas"><b>${pend}</b><span>Prereservas esperando pago</span></button>
+    <button class="kpi" data-act="view" data-v="alertas"><b>${renov}</b><span>Planes por renovar (${S.cfg.renewDays} días)</span></button>
+    <button class="kpi" data-act="view" data-v="espera"><b>${wait}</b><span>En lista de espera</span></button>
+  </div>
+  <div class="toolbar">
+    <div class="row">
+      <div class="seg" role="group" aria-label="Vista">
+        <button data-act="calmode" data-m="dia" aria-pressed="${c.mode==='dia'}">Día</button>
+        <button data-act="calmode" data-m="semana" aria-pressed="${c.mode==='semana'}">Semana</button>
+        <button data-act="calmode" data-m="mes" aria-pressed="${c.mode==='mes'}">Mes</button>
+      </div>
+      <button class="btn sm" data-act="calnav" data-n="-1" aria-label="Anterior">‹</button>
+      <button class="btn sm" data-act="caltoday">Hoy</button>
+      <button class="btn sm" data-act="calnav" data-n="1" aria-label="Siguiente">›</button>
+      <input type="date" id="cal-date" value="${c.date}" aria-label="Elegir fecha" style="width:auto">
+      <select id="cal-jump" aria-label="Saltar a" style="width:auto">${jumps.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select>
+    </div>
+    <div class="row">
+      <button class="btn sun" data-act="newimp">+ Reserva Impulso</button>
+      <button class="btn rose" data-act="newtut">+ Tutoría / reposición</button>
+    </div>
+  </div>
+  <div class="row" style="justify-content:space-between;margin-bottom:10px"><div class="period-title">${title}</div>${c.mode!=='dia'&&c.date!==T?`<span class="small muted">Hoy es ${fmtD(T)}</span>`:''}</div>
+  ${body}
+  <div class="legend">
+    <span><i class="dot" style="background:var(--sun)"></i>Impulso · máx. ${S.cfg.capImpulso}</span>
+    <span><i class="dot" style="background:var(--rose)"></i>Tutoría · máx. ${S.cfg.capTutoria}</span>
+    <span><i class="dot" style="background:var(--rose-soft);box-shadow:inset 0 0 0 2px var(--rose-line)"></i>Viernes: tutoría o reposición (tutoría tiene prioridad)</span>
+    <span><i class="dot" style="background:var(--warn)"></i>Quedan ≤ ${S.cfg.lowThreshold}</span>
+    <span><i class="dot" style="background:var(--bad)"></i>Lleno</span>
+  </div>`;
+}
+function cellHtml(d, h){
+  const w = dowOf(d), t = slotType(w, h), T = todayS();
+  if (!t) return `<div class="cell none">—</div>`;
+  const list = occ(d, h), cap = capOf(t), n = list.length, free = cap - n;
+  const pre = list.filter(b => b.status==='pre').length;
+  const lvl = free <= 0 ? 'lvl-full' : free <= S.cfg.lowThreshold ? 'lvl-low' : '';
+  const name = t==='imp' ? 'Impulso' : t==='tut' ? 'Tutoría' : 'Tutoría o reposición';
+  const sub = free <= 0 ? (n>cap?`Sobrecupo +${n-cap}`:'Lleno') : `${free} libre${free>1?'s':''}`;
+  return `<button class="cell ${t} ${lvl} ${d<T?'past':''}" data-act="slot" data-d="${d}" data-h="${h}" aria-label="${name} ${fmtD(d)} ${hourLbl(h)}: ${n} de ${cap}">
+    <span class="sub">${name}</span><span class="cnt">${n}/${cap}</span><span class="sub">${sub}${pre?` · ${pre} pre`:''}</span>
+    <span class="bar" style="width:${Math.min(100, n/cap*100)}%"></span></button>`;
+}
+function calWeek(){
+  const m = mondayOf(S.cal.date), days = [0,1,2,3,4,5].map(i => addDays(m,i)), T = todayS();
+  let rows = '';
+  for (const h of HOURS){
+    if (h===15){ rows += `<tr><th class="hr">${rangeLbl(15)}</th><td colspan="6"><div class="receso">RECESO</div></td></tr>`; continue; }
+    rows += `<tr><th class="hr">${rangeLbl(h)}</th>${days.map(d => `<td>${cellHtml(d,h)}</td>`).join('')}</tr>`;
+  }
+  return `<div class="calcard"><div class="scroll-x"><table class="wk"><thead><tr><th class="hr"></th>${days.map(d => `<th class="${d===T?'today':''}">${DOWS[dowOf(d)]}<b>${pd(d).getDate()}</b></th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+function daySummary(d){
+  const w = dowOf(d); let impT=0, impF=0, impMin=Infinity, tutT=0, tutF=0, tutMin=Infinity;
+  for (const h of HOURS){
+    const t = slotType(w,h); if (!t) continue;
+    const f = capOf(t) - occ(d,h).length;
+    if (t==='imp'){ impT += capOf(t); impF += Math.max(0,f); impMin = Math.min(impMin,f); }
+    else { tutT += capOf(t); tutF += Math.max(0,f); tutMin = Math.min(tutMin,f); }
+  }
+  return { impT, impF, impMin, tutT, tutF, tutMin };
+}
+function calMonth(){
+  const d0 = pd(S.cal.date), first = ds(new Date(d0.getFullYear(), d0.getMonth(), 1)), last = ds(new Date(d0.getFullYear(), d0.getMonth()+1, 0));
+  let d = mondayOf(first); const T = todayS(); let cells = '';
+  while (d <= last || dowOf(d)!==1){
+    if (d > last && dowOf(d)===1) break;
+    if (dowOf(d)!==0){
+      const s = daySummary(d), out = d.slice(0,7)!==first.slice(0,7);
+      const cls = v => v<=0 ? 'full' : v<=S.cfg.lowThreshold ? 'low' : '';
+      cells += `<button class="mday ${out?'out':''} ${d===T?'today':''}" data-act="gotoday" data-d="${d}" aria-label="${fmtD(d)}">
+        <span class="n">${pd(d).getDate()}</span>
+        ${s.impT?`<span class="mline imp ${cls(s.impMin)}" title="Lugares libres de Impulso"><span>Impulso</span><span>${s.impF} libres</span></span>`:''}
+        ${s.tutT?`<span class="mline tut ${cls(s.tutMin)}" title="Lugares libres de tutoría"><span>${dowOf(d)===5?'Tut/Rep':'Tutoría'}</span><span>${s.tutF}/${s.tutT}</span></span>`:''}
+      </button>`;
+    }
+    d = addDays(d,1);
+  }
+  return `<div class="calcard"><div class="mgrid">${['lun','mar','mié','jue','vie','sáb'].map(x=>`<div class="mhead">${x}</div>`).join('')}${cells}</div>
+    <p class="small muted" style="margin:10px 0 0">Cada día muestra los lugares libres sumando todos sus horarios. Borde naranja: algún horario con ≤ ${S.cfg.lowThreshold} lugares. Rojo: algún horario lleno.</p></div>`;
+}
+function calDay(){
+  const d = S.cal.date, w = dowOf(d);
+  const hours = HOURS.filter(h => slotType(w,h));
+  if (!hours.length) return `<div class="empty">${DOWL[w]}: no hay clases ese día.</div>`;
+  return `<div class="stack">${hours.map(h => {
+    const t = slotType(w,h), list = occ(d,h), cap = capOf(t);
+    const chip = t==='imp' ? `<span class="chip imp">Impulso</span>` : t==='tut' ? `<span class="chip tut">Tutoría</span>` : `<span class="chip repo">Tutoría o reposición</span>`;
+    return `<div class="dayslot"><div><div class="hr">${rangeLbl(h)}</div>${chip}</div>
+      <div class="stack" style="gap:6px"><div class="small"><b>${list.length} de ${cap}</b> ocupados${list.length>=cap?' · <b style="color:var(--bad)">lleno</b>':''}</div>
+      <div class="people">${list.length ? list.map(b => personChip(b)).join('') : '<span class="small muted">Sin alumnos</span>'}</div></div>
+      <div class="row"><button class="btn sm" data-act="slot" data-d="${d}" data-h="${h}">Detalle</button></div></div>`;
+  }).join('')}</div>`;
+}
+function personChip(b){
+  const s = stu(b.studentId);
+  const extra = b.type==='repo' ? ' · repo' : b.type==='tutoria' ? '' : '';
+  return `<button class="person ${b.status==='pre'?'pre':''}" data-act="booking" data-id="${b.id}" title="${b.status==='pre'?'Prereserva':'Pagado'}">${esc(labelOf(s))}${extra}${b.status==='pre'?' · pre':''}</button>`;
+}
+
+/* ---------- Detalle de un horario ---------- */
+function openSlot(d, h){
+  const render = () => {
+    const w = dowOf(d), t = slotType(w,h), list = occ(d,h), cap = capOf(t);
+    const key = w+'-'+h;
+    let info = '';
+    if (t==='imp'){
+      const nf = list.length >= cap ? nextFree(key, d) : null;
+      const next = [...occurrences(key, d, addDays(d, 7*5))].slice(0,6).map(x => { const n = occ(x,h).length; return `<tr><td>${fmtD(x)}</td><td>${n}/${cap}</td><td>${n>=cap?'<span class="chip venc">Lleno</span>':cap-n<=S.cfg.lowThreshold?`<span class="chip tent">${cap-n} libres</span>`:`<span class="chip conf">${cap-n} libres</span>`}</td></tr>`; }).join('');
+      info = `${list.length>=cap ? `<div class="note bad">Grupo lleno. ${nf?`Primer lugar libre: <b>${fmtD(nf.date)}</b>${nf.leaving.length?` (termina el plan de ${nf.leaving.map(b=>esc(labelOf(stu(b.studentId)))).join(', ')}; se libera si no renueva)`:''}.`:'Sin lugar en los próximos meses.'}</div>` : ''}
+        <div><div class="lbl" style="margin-bottom:6px">Próximas semanas en este horario</div><table class="list"><tbody>${next}</tbody></table></div>`;
+      const cands = candidatesFor(key);
+      info += `<div><div class="lbl" style="margin-bottom:6px">Lista de espera para este horario (${cands.length})</div>${cands.length ? `<div class="cands">${cands.map((c,i) => candRow(c,i, d)).join('')}</div>` : '<span class="small muted">Nadie en espera para este horario.</span>'}</div>`;
+    } else if (t==='mix'){
+      info = `<div class="note">Viernes: la tutoría tiene prioridad. Una reposición queda <b>tentativa</b> hasta 48 h antes (cuando ya no se puede agendar ni pagar una tutoría) y entonces queda <b>firme</b>.</div>`;
+    }
+    $('#m-body').innerHTML = `
+      <div class="row"><b style="font-size:1.4rem">${list.length} de ${cap}</b><span class="muted">lugares ocupados${list.filter(b=>b.status==='pre').length?` · ${list.filter(b=>b.status==='pre').length} en prereserva`:''}</span></div>
+      <div>${list.length ? `<table class="list"><tbody>${list.map(b => { const s = stu(b.studentId); return `<tr class="click" data-act="booking" data-id="${b.id}"><td><b>${esc(labelOf(s))}</b><div class="small muted">${b.type==='impulso'?`${planName(b.plan)} · hasta ${fmtD(b.end)}`:b.type==='repo'?'Reposición':'Tutoría'}</div></td><td>${statusChip(b)}</td></tr>`; }).join('')}</tbody></table>` : `<div class="empty">Sin alumnos en este horario.</div>`}</div>
+      ${info}`;
+  };
+  const t = slotType(dowOf(d),h);
+  openModal(`${DOWL[dowOf(d)]} ${pd(d).getDate()} ${MES[pd(d).getMonth()]} · ${rangeLbl(h)}`, '',
+    t==='imp' ? `<button class="btn sun" data-act="newimp" data-key="${dowOf(d)}-${h}" data-start="${d}">+ Reserva Impulso aquí</button>`
+              : `<button class="btn rose" data-act="newtut" data-d="${d}" data-h="${h}">+ Tutoría${t==='mix'?' / reposición':''} aquí</button>`,
+    { sub: t==='imp'?'Impulso Académico · grupo reducido':t==='tut'?'Tutoría · 1 estudiante por maestra':'Tutoría o reposición', refresh: render });
+  render();
+}
+function candRow(w, i, fromD){
+  const s = stu(w.studentId);
+  const av = availableFrom(w);
+  const msg = av ? ofertaMsg(w, av) : '';
+  return `<div class="cand"><b>#${i+1}</b> ${esc(labelOf(s))} ${planChip(s.plan)} <span class="small muted">desde ${fmtDY(s.since)} · quiere ${esc(fmtSlots(w.slots))}</span>
+    <span class="small">${av?`Disponible desde <b>${fmtD(av)}</b>`:'Aún sin lugar para todos sus horarios'}</span>
+    ${av ? waBtn(s.phone, msg, 'Ofrecer') : ''} <button class="btn sm" data-act="wait2pre" data-id="${w.id}">Crear prereserva</button></div>`;
+}
+
+/* =====================================================================
+   FORMULARIO: RESERVA IMPULSO
+   ===================================================================== */
+function studentOptions(sel, filterPlan){
+  const list = Object.values(S.students).filter(s => s.active!==false).sort((a,b) => a.name.localeCompare(b.name,'es'));
+  return `<option value="">Elegir alumno…</option><option value="__new">+ Registrar alumno nuevo</option>` +
+    list.map(s => `<option value="${s.id}" ${s.id===sel?'selected':''}>${esc(labelOf(s))} · ${esc(planName(s.plan))}</option>`).join('');
+}
+function newStudentFields(prefix){
+  return `<div class="grid2" id="${prefix}-new" hidden>
+    <div class="field"><label for="${prefix}-nname">Nombre del alumno</label><input id="${prefix}-nname" type="text" autocomplete="off"></div>
+    <div class="field"><label for="${prefix}-ntutor">Padre, madre o tutor</label><input id="${prefix}-ntutor" type="text" autocomplete="off"></div>
+    <div class="field"><label for="${prefix}-nphone">WhatsApp (10 dígitos)</label><input id="${prefix}-nphone" type="tel" inputmode="numeric" autocomplete="off"></div>
+    <div class="field"><label for="${prefix}-nplan">Plan</label><select id="${prefix}-nplan">${Object.keys(S.cfg.plans).map(p=>`<option value="${p}">${esc(planName(p))} (${S.cfg.plans[p].hours} h/sem)</option>`).join('')}<option value="ninguno">Sin plan (solo tutorías)</option></select></div>
+  </div>`;
+}
+async function resolveStudent(prefix, selId){
+  if (selId !== '__new') return selId;
+  const name = $(`#${prefix}-nname`).value.trim(), tutor = $(`#${prefix}-ntutor`).value.trim();
+  const phone = $(`#${prefix}-nphone`).value.replace(/\D/g,''), plan = $(`#${prefix}-nplan`).value;
+  if (!name) throw 'Escribe el nombre del alumno.';
+  if (phone.length < 10) throw 'El WhatsApp debe tener 10 dígitos.';
+  const id = newId('students');
+  const ok = await dbSet('students', id, { name, tutor, phone, plan, since: todayS(), prefs: [], notes:'', active:true, createdAt:new Date().toISOString() });
+  if (!ok) throw 'No se pudo registrar al alumno.';
+  S.students[id] = { id, name, tutor, phone, plan, since: todayS(), prefs: [] };
+  return id;
+}
+function openImpForm(pre={}){
+  const F = {
+    studentId: pre.studentId || '', plan: pre.plan || '', from: pre.start && pre.start > todayS() ? pre.start : addDays(todayS(), 2),
+    slots: new Set(pre.slots || (pre.key ? [pre.key] : [])), status:'pre', exc:false, renewalOf: pre.renewalOf || null
+  };
+  /* El mes empieza en la primera clase de sus horarios a partir de 'from' (con pago ya verificado: la siguiente clase después de ahora) */
+  const startOf = () => (F.slots.size && firstClassDate([...F.slots], F.from, F.status==='conf' ? Date.now() : 0)) || F.from;
+  if (F.studentId && !F.plan){ const s = stu(F.studentId); F.plan = S.cfg.plans[s.plan] ? s.plan : 'basico'; }
+  if (!F.plan) F.plan = 'basico';
+  const plans = Object.keys(S.cfg.plans);
+  openModal(F.renewalOf ? 'Renovación de plan Impulso' : 'Nueva reserva · Impulso Académico', `
+    <div class="grid2">
+      <div class="field"><label for="if-stu">Alumno</label><select id="if-stu">${studentOptions(F.studentId)}</select></div>
+      <div class="field"><label for="if-plan">Plan</label><select id="if-plan">${plans.map(p=>`<option value="${p}" ${p===F.plan?'selected':''}>${esc(planName(p))} · ${S.cfg.plans[p].hours} h a la semana</option>`).join('')}</select></div>
+      <div class="field"><label for="if-start" id="if-start-l">Puede empezar a partir de</label><input id="if-start" type="date" value="${F.from}"></div>
+    </div>
+    ${newStudentFields('if')}
+    <div id="if-dyn"></div>
+    <fieldset class="panel stack" style="gap:8px"><legend class="lbl">Estado</legend>
+      <label class="row"><input type="radio" name="if-st" value="pre" checked> Prereserva (aparta el lugar hasta el límite de pago)</label>
+      <label class="row"><input type="radio" name="if-st" value="conf"> Pago ya verificado</label>
+      <div class="field" id="if-amt-w" hidden><label for="if-amt">Monto recibido (opcional)</label><input id="if-amt" type="number" min="0" step="1" value="${S.cfg.plans[F.plan].price||''}"></div>
+    </fieldset>
+    <label class="row small"><input type="checkbox" id="if-exc"> Registrar como excepción (permite sobrecupo o pago con menos de 48 h; queda anotado)</label>
+    <div class="err" id="if-err" role="alert"></div>`,
+    `<button class="btn" data-act="close">Cancelar</button><button class="btn primary" id="if-save">Guardar</button>`, { wide:true, sub:'El mes empieza en la primera clase después del pago: si esa clase es el 15, termina el 14 del mes siguiente.' });
+  const dyn = () => {
+    const start = startOf(), end = periodEnd(start), hours = S.cfg.plans[F.plan].hours;
+    const keys = [...F.slots].sort(keySort), pat = checkPattern(keys, hours);
+    const hrs = [9,10,13,14,16,17];
+    let rows = hrs.map(h => `<tr><td class="h">${rangeLbl(h)}</td>${IMP_DOWS.map(w => {
+      const k = w+'-'+h;
+      if (SLOT[k]!=='imp') return `<td><span class="pk na">—</span></td>`;
+      const { free } = minFreeIn(k, start, end);
+      const on = F.slots.has(k);
+      const cls = free<=0 ? 'full' : free<=S.cfg.lowThreshold ? 'low' : '';
+      return `<td><label class="pk ${on?'on':''} ${cls}"><input type="checkbox" data-slot="${k}" ${on?'checked':''}><span>${free<=0?'Lleno':free+' libres'}</span></label></td>`;
+    }).join('')}</tr>`).join('');
+    const fc = keys.length ? firstClass({ type:'impulso', slots:keys, start }) : null;
+    const dl = fc ? new Date(fc.getTime()-H48) : null;
+    const late = F.status==='pre' && dl && dl.getTime() < Date.now();
+    const fulls = keys.filter(k => minFreeIn(k, start, end).free <= 0);
+    $('#if-dyn').innerHTML = `
+      <div class="note">${fc ? `Primera clase e inicio del mes: <b>${fmtDT(fc)}</b> · Termina: <b>${fmtD(end)}</b>${F.status==='pre'?` · Pago límite: <b>${fmtDT(dl)}</b>`:''}` : 'Elige los horarios para calcular la primera clase y el fin del mes.'}
+      ${F.status==='pre' && fc ? '<div class="small muted" style="margin-top:4px">Fecha prevista. Al confirmar el pago, el mes se recalcula desde la siguiente clase después del pago.</div>' : ''}</div>
+      <div><div class="lbl" style="margin-bottom:6px">Horarios (los números son los lugares libres en todo el periodo)</div>
+      <div class="scroll-x"><table class="pick"><thead><tr><th></th>${IMP_DOWS.map(w=>`<th>${DOWS[w]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div></div>
+      <div class="note ${pat.ok?'ok':'warn'}">${pat.ok?'Combinación válida: ':''}${esc(pat.msg)}</div>
+      ${fulls.length?`<div class="note bad">Sin lugar en ${esc(fmtSlots(fulls))} durante el periodo. ${fulls.map(k=>{const nf=nextFree(k,start);return nf?`${fmtSlots([k])}: libre desde ${fmtD(nf.date)}.`:'';}).join(' ')}</div>`:''}
+      ${late?`<div class="note bad">La primera clase es en menos de 48 h, así que el pago ya no llegaría a tiempo para apartar. Cambia la fecha, regístralo con pago verificado o márcalo como excepción.</div>`:''}`;
+  };
+  dyn();
+  const syncStu = () => {
+    const v = $('#if-stu').value; F.studentId = v;
+    $('#if-new').hidden = v !== '__new';
+    if (v && v!=='__new'){ const s = stu(v); if (S.cfg.plans[s.plan]){ F.plan = s.plan; $('#if-plan').value = s.plan; }
+      if (!F.slots.size && (s.prefs||[]).length) (s.prefs||[]).filter(k=>SLOT[k]==='imp').forEach(k=>F.slots.add(k)); }
+    dyn();
+  };
+  $('#if-stu').onchange = syncStu;
+  if (F.studentId === '__new') syncStu();
+  $('#if-plan').onchange = e => { F.plan = e.target.value; $('#if-amt').value = S.cfg.plans[F.plan].price || ''; dyn(); };
+  $('#if-start').onchange = e => { if (e.target.value){ F.from = e.target.value; dyn(); } };
+  $('#if-dyn').addEventListener('change', e => { const k = e.target.dataset.slot; if (!k) return; if (e.target.checked) F.slots.add(k); else F.slots.delete(k); dyn(); });
+  $$('input[name=if-st]').forEach(r => r.onchange = () => {
+    F.status = $('input[name=if-st]:checked').value; $('#if-amt-w').hidden = F.status!=='conf';
+    if (F.status==='conf' && !F.renewalOf){ F.from = todayS(); $('#if-start').value = F.from; }
+    $('#if-start-l').textContent = F.status==='conf' ? 'Fecha del pago' : 'Puede empezar a partir de';
+    dyn();
+  });
+  $('#if-exc').onchange = e => F.exc = e.target.checked;
+  $('#if-save').onclick = async () => {
+    const err = $('#if-err'); err.textContent = '';
+    try {
+      if (!F.studentId) throw 'Elige un alumno o registra uno nuevo.';
+      if (!F.slots.size) throw 'Elige los horarios.';
+      const keys = [...F.slots].sort(keySort), hours = S.cfg.plans[F.plan].hours, start = startOf(), end = periodEnd(start);
+      const pat = checkPattern(keys, hours);
+      if (!pat.ok && !F.exc) throw pat.msg;
+      const full = keys.filter(k => minFreeIn(k, start, end).free <= 0);
+      if (full.length && !F.exc) throw `Sin lugar en ${fmtSlots(full)}. Elige otro horario, agrega al alumno a la lista de espera o márcalo como excepción.`;
+      const dl = deadline({ type:'impulso', slots:keys, start });
+      if (F.status==='pre' && dl.getTime() < Date.now() && !F.exc) throw 'La primera clase es en menos de 48 h: el pago ya no llegaría a tiempo. Cambia la fecha, regístralo con pago verificado o márcalo como excepción.';
+      if (F.studentId !== '__new'){
+        const overlap = S.bk.find(b => b.type==='impulso' && isActive(b) && b.studentId===F.studentId && b.start<=end && start<=b.end && b.id!==F.renewalOf);
+        if (overlap && !F.exc) throw `Este alumno ya tiene un plan del ${fmtD(overlap.start)} al ${fmtD(overlap.end)} que se cruza con este periodo.`;
+      }
+      $('#if-save').disabled = true;
+      const sid = await resolveStudent('if', F.studentId);
+      const id = newId('bookings'), now = new Date().toISOString();
+      const doc = { type:'impulso', studentId:sid, plan:F.plan, hours, slots:keys, start, end, status:F.status, createdAt:now, exception:F.exc, notes:'' };
+      if (F.renewalOf) doc.renewalOf = F.renewalOf;
+      if (F.status==='conf'){ doc.paidAt = now; doc.amount = Number($('#if-amt').value)||0; }
+      if (await dbSet('bookings', id, doc)){
+        toast(F.status==='pre' ? 'Prereserva guardada' : 'Reserva pagada guardada');
+        S.waitlist && Object.values(S.waitlist).filter(w => w.studentId===sid && w.status==='activa').forEach(w => dbUpdate('waitlist', w.id, { status:'atendida', closedAt:now }));
+        openBooking(id, { ...doc, id });
+      } else $('#if-save').disabled = false;
+    } catch(e){ err.textContent = typeof e==='string' ? e : 'No se pudo guardar.'; $('#if-save').disabled = false; }
+  };
+}
+
+/* =====================================================================
+   FORMULARIO: TUTORÍA / REPOSICIÓN
+   ===================================================================== */
+function openTutForm(pre={}){
+  const F = { studentId: pre.studentId||'', type: pre.type||'tutoria', date: pre.date || addDays(todayS(), 2), hour: pre.hour!=null ? +pre.hour : null, status:'pre', exc:false };
+  if (pre.date && slotType(dowOf(pre.date), +pre.hour)==='mix' && pre.type==null) F.type = 'tutoria';
+  openModal('Nueva tutoría o reposición', `
+    <div class="grid2">
+      <div class="field"><label for="tf-stu">Alumno</label><select id="tf-stu">${studentOptions(F.studentId)}</select></div>
+      <div class="field"><label for="tf-type">Tipo</label><select id="tf-type"><option value="tutoria">Tutoría (pagada, 1 hora)</option><option value="repo">Reposición de clase (incluida en el plan)</option></select></div>
+      <div class="field"><label for="tf-date">Fecha</label><input id="tf-date" type="date" value="${F.date}"></div>
+      <div class="field"><label for="tf-hour">Hora</label><select id="tf-hour"></select></div>
+    </div>
+    ${newStudentFields('tf')}
+    <div id="tf-dyn"></div>
+    <fieldset class="panel stack" style="gap:8px" id="tf-stbox"><legend class="lbl">Estado</legend>
+      <label class="row"><input type="radio" name="tf-st" value="pre" checked> Prereserva (pendiente de pago)</label>
+      <label class="row"><input type="radio" name="tf-st" value="conf"> Pago ya verificado</label>
+      <div class="field" id="tf-amt-w" hidden><label for="tf-amt">Monto recibido (opcional)</label><input id="tf-amt" type="number" min="0" value="${S.cfg.tutoriaPrice||''}"></div>
+    </fieldset>
+    <label class="row small"><input type="checkbox" id="tf-exc"> Registrar como excepción (permite sobrecupo o menos de 48 h)</label>
+    <div class="err" id="tf-err" role="alert"></div>`,
+    `<button class="btn" data-act="close">Cancelar</button><button class="btn primary" id="tf-save">Guardar</button>`, { sub:'Máximo 2 alumnos por hora, cada uno con su maestra.' });
+  $('#tf-type').value = F.type;
+  const hoursFor = () => HOURS.filter(h => { const t = slotType(dowOf(F.date), h); return F.type==='repo' ? t==='mix' : (t==='tut'||t==='mix'); });
+  const dyn = () => {
+    const hs = hoursFor();
+    if (!hs.includes(F.hour)) F.hour = hs[0] ?? null;
+    $('#tf-hour').innerHTML = hs.length ? hs.map(h => { const n = occ(F.date,h).length, cap = S.cfg.capTutoria; return `<option value="${h}" ${h===F.hour?'selected':''}>${rangeLbl(h)} · ${n>=cap?'lleno':(cap-n)+' libre'+(cap-n>1?'s':'')}</option>`; }).join('') : `<option value="">Sin horarios ese día</option>`;
+    $('#tf-stbox').hidden = F.type==='repo';
+    let html = '';
+    if (F.hour==null){ html = `<div class="note warn">${F.type==='repo'?'Las reposiciones son solo los viernes (1–3 pm y 4–6 pm).':'Ese día no hay horario de tutoría.'}</div>`; }
+    else {
+      const list = occ(F.date, F.hour), cap = S.cfg.capTutoria, dt = pd(F.date); dt.setHours(F.hour);
+      const dl = new Date(dt.getTime()-H48);
+      html += `<div class="note">Ocupados: <b>${list.length} de ${cap}</b>${list.length?` (${list.map(b=>esc(labelOf(stu(b.studentId)))+(b.type==='repo'?' · reposición':'')).join(', ')})`:''}. ${F.type==='tutoria'?`Pago límite: <b>${fmtDT(dl)}</b>.`:`Queda firme el <b>${fmtDT(dl)}</b>.`}</div>`;
+      if (F.type==='tutoria' && dl.getTime() < Date.now()) html += `<div class="note bad">Faltan menos de 48 h: por regla ya no se puede agendar en este horario.</div>`;
+      if (list.length >= cap){
+        const repos = list.filter(b => b.type==='repo');
+        if (F.type==='tutoria' && repos.length) html += `<div class="note warn">Horario lleno, pero hay reposición(es). La tutoría tiene prioridad: al confirmar su pago, la reposición más reciente quedará desplazada y te avisaré para reprogramarla.</div>`;
+        else html += `<div class="note bad">Horario lleno.</div>`;
+      }
+      if (F.type==='repo' && F.studentId && F.studentId!=='__new'){
+        const pb = activePlan(F.studentId, F.date);
+        if (!pb) html += `<div class="note bad">El alumno no tiene un plan pagado vigente en esa fecha.</div>`;
+        else { const used = reposUsed(pb), lim = S.cfg.plans[pb.plan]?.repos ?? 0;
+          html += `<div class="note ${used>=lim?'bad':'ok'}">Reposiciones usadas en su periodo (${fmtD(pb.start)}–${fmtD(pb.end)}): <b>${used} de ${lim}</b> (${esc(planName(pb.plan))}).</div>`; }
+      }
+    }
+    $('#tf-dyn').innerHTML = html;
+  };
+  dyn();
+  $('#tf-stu').onchange = e => { F.studentId = e.target.value; $('#tf-new').hidden = F.studentId!=='__new'; dyn(); };
+  $('#tf-type').onchange = e => { F.type = e.target.value; dyn(); };
+  $('#tf-date').onchange = e => { if (e.target.value){ F.date = e.target.value; dyn(); } };
+  $('#tf-hour').onchange = e => { F.hour = +e.target.value; dyn(); };
+  $$('input[name=tf-st]').forEach(r => r.onchange = () => { F.status = $('input[name=tf-st]:checked').value; $('#tf-amt-w').hidden = F.status!=='conf'; });
+  $('#tf-exc').onchange = e => F.exc = e.target.checked;
+  $('#tf-save').onclick = async () => {
+    const err = $('#tf-err'); err.textContent = '';
+    try {
+      if (!F.studentId) throw 'Elige un alumno o registra uno nuevo.';
+      if (F.hour==null) throw 'Elige una fecha y hora válidas.';
+      const list = occ(F.date, F.hour), cap = S.cfg.capTutoria;
+      const dt = pd(F.date); dt.setHours(F.hour);
+      if (dt.getTime() - H48 < Date.now() && F.type==='tutoria' && !F.exc) throw 'Faltan menos de 48 h para esa tutoría. Elige otro horario o márcala como excepción.';
+      if (dt.getTime() < Date.now() && !F.exc) throw 'Esa fecha ya pasó.';
+      if (list.length >= cap && !F.exc){
+        if (!(F.type==='tutoria' && list.some(b => b.type==='repo'))) throw 'Horario lleno. Elige otra hora o márcalo como excepción.';
+      }
+      if (list.some(b => b.studentId===F.studentId)) throw 'Este alumno ya está en ese horario.';
+      if (F.type==='repo' && F.studentId!=='__new' && !F.exc){
+        const pb = activePlan(F.studentId, F.date);
+        if (!pb) throw 'El alumno no tiene un plan pagado vigente en esa fecha.';
+        if (reposUsed(pb) >= (S.cfg.plans[pb.plan]?.repos ?? 0)) throw 'Ya usó todas las reposiciones de su periodo.';
+      }
+      if (F.type==='repo' && F.studentId==='__new') throw 'Las reposiciones son para alumnos con plan. Registra primero su plan de Impulso.';
+      $('#tf-save').disabled = true;
+      const sid = await resolveStudent('tf', F.studentId);
+      const id = newId('bookings'), now = new Date().toISOString();
+      const status = F.type==='repo' ? 'conf' : F.status;
+      const doc = { type:F.type, studentId:sid, date:F.date, hour:F.hour, status, createdAt:now, exception:F.exc, notes:'' };
+      if (F.type==='repo'){ const pb = activePlan(sid, F.date); if (pb) doc.planBookingId = pb.id; }
+      if (status==='conf' && F.type==='tutoria'){ doc.paidAt = now; doc.amount = Number($('#tf-amt').value)||0; }
+      if (await dbSet('bookings', id, doc)){
+        if (status==='conf' && F.type==='tutoria') await displaceRepoIfNeeded(F.date, F.hour, id);
+        toast('Guardado'); openBooking(id, { ...doc, id });
+      } else $('#tf-save').disabled = false;
+    } catch(e){ err.textContent = typeof e==='string' ? e : 'No se pudo guardar.'; $('#tf-save').disabled = false; }
+  };
+}
+async function displaceRepoIfNeeded(date, hour, newId_){
+  const list = occ(date, hour).filter(b => b.id!==newId_);
+  const cap = S.cfg.capTutoria;
+  const total = list.length + 1;
+  if (total <= cap) return;
+  const repos = list.filter(b => b.type==='repo').sort((a,b) => (a.createdAt||'') < (b.createdAt||'') ? 1 : -1);
+  for (const r of repos.slice(0, total-cap)){
+    await dbUpdate('bookings', r.id, { status:'desplazada', displacedAt:new Date().toISOString(), displacedBy:newId_ });
+    toast(`La reposición de ${stu(r.studentId).name} quedó desplazada. Revisa Alertas para reprogramarla.`);
+  }
+}
+
+/* =====================================================================
+   DETALLE DE RESERVA
+   ===================================================================== */
+function openBooking(id, fallback){
+  const render = () => {
+    const b = S.bookings[id] || fallback; if (!b) return closeModal();
+    const s = stu(b.studentId), ctx = ctxFor(b);
+    const dl = deadline(b), now = Date.now();
+    const rows = [];
+    rows.push(['Alumno', `${esc(labelOf(s))} ${planChip(s.plan)}`]);
+    rows.push(['Tutor', esc(s.tutor||'—') + (s.phone?` · ${esc(s.phone)}`:'')]);
+    rows.push(['Tipo', typeChip(b)]);
+    if (b.type==='impulso'){
+      rows.push(['Horario', esc(fmtSlots(b.slots))]);
+      rows.push(['Periodo', `${fmtD(b.start)} al ${fmtD(b.end)} · ${esc(planName(b.plan))} (${b.hours} h/sem)`]);
+      const pb = b.status==='conf' ? `${reposUsed(b)} de ${S.cfg.plans[b.plan]?.repos ?? 0}` : '—';
+      rows.push(['Reposiciones usadas', pb]);
+    } else rows.push(['Fecha', `${fmtD(b.date)} · ${rangeLbl(b.hour)}`]);
+    rows.push(['Estado', statusChip(b) + (b.exception?' <span class="chip tent">Excepción</span>':'')]);
+    if (b.status==='pre') rows.push(['Pago límite', `<b>${fmtDT(dl)}</b> <span class="small muted">(${dl.getTime()>now?'faltan '+relH(dl.getTime()-now):'venció hace '+relH(now-dl.getTime())})</span>`]);
+    if (b.paidAt) rows.push(['Pago verificado', `${fmtDT(new Date(b.paidAt))}${b.amount?` · $${Number(b.amount).toLocaleString('es-MX')}`:''}`]);
+    if (b.renewalOf) rows.push(['Renovación de', `<button class="btn sm" data-act="booking" data-id="${b.renewalOf}">Ver periodo anterior</button>`]);
+    const ren = b.type==='impulso' ? renewalOf(b) : null;
+    if (ren) rows.push(['Renovación', `<button class="btn sm" data-act="booking" data-id="${ren.id}">${fmtD(ren.start)} al ${fmtD(ren.end)}</button> ${statusChip(ren)}`]);
+    rows.push(['Registrada', fmtDT(new Date(b.createdAt))]);
+
+    let pay = '';
+    if (b.status==='pre'){
+      const price = b.type==='impulso' ? (S.cfg.plans[b.plan]?.price||'') : (S.cfg.tutoriaPrice||'');
+      const ps = b.type==='impulso' ? startAfterPayment(b) : null;
+      pay = `<div class="panel stack" style="gap:10px"><label class="row" style="font-weight:800"><input type="checkbox" id="bk-paid"> Pago verificado (ya está en la cuenta)</label>
+        <div class="grid2">
+        ${ps ? `<div class="field"><label for="bk-start">Inicio del mes (primera clase después del pago)</label><input id="bk-start" type="date" value="${ps}"><span class="small" id="bk-period">Del ${fmtD(ps)} al ${fmtD(periodEnd(ps))}</span></div>` : ''}
+        <div class="field"><label for="bk-amt">Monto (opcional)</label><input id="bk-amt" type="number" min="0" value="${price}"></div></div>
+        ${ps && ps!==b.start ? `<div class="note">La prereserva preveía empezar el ${fmtD(b.start)}. Con el pago de hoy, la siguiente clase con lugar es el ${fmtD(ps)}; puedes cambiar la fecha si la familia prefiere otra.</div>` : ''}
+        ${dl.getTime() < now ? `<div class="note warn">El pago llega después del límite de 48 h. Si lo confirmas quedará marcado como excepción.</div>` : ''}
+        <button class="btn primary" id="bk-confirm" disabled>Confirmar pago</button></div>`;
+    }
+    const wa = [];
+    if (b.status==='pre' && !isOverdue(b)) wa.push(waBtn(s.phone, fill(S.cfg.tpl[b.type==='tutoria'?'tutoria':'pago'], ctx), 'Recordar pago'));
+    if (isOverdue(b)) wa.push(waBtn(s.phone, fill(S.cfg.tpl.vencida, ctx), 'Avisar vencimiento'));
+    if (b.status==='conf' && b.type!=='repo') wa.push(waBtn(s.phone, fill(S.cfg.tpl.confirmacion, b.type==='impulso'?ctx:{...ctx, fin:fmtD(b.date)}), 'Enviar confirmación'));
+    if (b.type==='impulso' && b.status==='conf' && !ren) wa.push(waBtn(s.phone, fill(S.cfg.tpl.renovacion, { ...ctx, limite: fmtDT(renewalDeadline(b)) }), 'Recordar renovación'));
+    if (b.status==='desplazada') wa.push(waBtn(s.phone, fill(S.cfg.tpl.desplazada, ctx), 'Avisar reprogramación'));
+
+    $('#m-body').innerHTML = `<dl class="kv">${rows.map(([k,v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+      ${pay}
+      ${wa.length?`<div><div class="lbl" style="margin-bottom:6px">Mensajes de WhatsApp</div><div class="row">${wa.join('')}</div><p class="small muted" style="margin:6px 0 0">Se abre WhatsApp con el mensaje escrito; tú decides si lo envías.</p></div>`:''}
+      <div class="field"><label for="bk-notes">Notas</label><textarea id="bk-notes">${esc(b.notes||'')}</textarea></div>`;
+    $('#m-foot').innerHTML = `
+      ${b.status!=='cancel' ? `<button class="btn danger" id="bk-cancel">${b.status==='pre'?'Liberar prereserva':'Cancelar reserva'}</button>` : ''}
+      ${b.type==='impulso' && b.status==='conf' && !ren ? `<button class="btn sun" data-act="renew" data-id="${b.id}">Renovar</button>` : ''}
+      ${b.type==='repo' && b.status==='desplazada' ? `<button class="btn rose" data-act="newtut" data-stu="${b.studentId}" data-type="repo">Reprogramar</button>` : ''}
+      <button class="btn" data-act="student" data-id="${b.studentId}">Ver alumno</button>
+      <button class="btn primary" id="bk-save-notes">Guardar notas</button>`;
+    const pc = $('#bk-paid');
+    if (pc){
+      pc.onchange = () => $('#bk-confirm').disabled = !pc.checked;
+      const bs = $('#bk-start');
+      if (bs) bs.onchange = () => { const s2 = bs.value && firstClassDate(b.slots, bs.value, 0); $('#bk-period').textContent = s2 ? `Primera clase ${fmtD(s2)} · del ${fmtD(s2)} al ${fmtD(periodEnd(s2))}` : 'Elige una fecha válida'; };
+      $('#bk-confirm').onclick = async () => {
+        const late = deadline(b).getTime() < Date.now();
+        const upd = { status:'conf', paidAt:new Date().toISOString(), amount:Number($('#bk-amt').value)||0 };
+        if (late) upd.exception = true;
+        if (b.type==='impulso'){
+          const s2 = bs && bs.value ? firstClassDate(b.slots, bs.value, 0) : b.start;
+          if (!s2){ toast('Elige una fecha de inicio válida.', true); return; }
+          const e2 = periodEnd(s2);
+          const full = b.slots.filter(k => minFreeIn(k, s2, e2, b.id).free <= 0);
+          if (full.length && !b.exception){ toast(`No hay lugar en ${fmtSlots(full)} para el periodo del ${fmtD(s2)} al ${fmtD(e2)}. Elige otra fecha de inicio.`, true); return; }
+          upd.start = s2; upd.end = e2;
+        }
+        if (await dbUpdate('bookings', b.id, upd)){
+          if (b.type==='tutoria') await displaceRepoIfNeeded(b.date, b.hour, b.id);
+          toast('Pago confirmado. Envía la confirmación por WhatsApp.');
+        }
+      };
+    }
+    const bc = $('#bk-cancel');
+    if (bc) bc.onclick = () => askConfirm(`¿${b.status==='pre'?'Liberar la prereserva':'Cancelar la reserva'} de ${esc(labelOf(s))}? El lugar quedará disponible.`, b.status==='pre'?'Liberar':'Cancelar reserva', async () => {
+      if (await dbUpdate('bookings', b.id, { status:'cancel', cancelledAt:new Date().toISOString() })){
+        toast('Lugar liberado');
+        if (b.type==='impulso'){ const c = b.slots.flatMap(k => candidatesFor(k)); if (c.length) toast(`Hay ${new Set(c.map(x=>x.id)).size} alumno(s) en espera para esos horarios. Revisa Alertas o Lista de espera.`); }
+      }
+    });
+    $('#bk-save-notes').onclick = async () => { if (await dbUpdate('bookings', b.id, { notes: $('#bk-notes').value })) toast('Notas guardadas'); };
+  };
+  const b0 = S.bookings[id] || fallback;
+  openModal(`${esc(labelOf(stu(b0.studentId)))}`, '', '<span></span>', { sub: b0.type==='impulso'?'Reserva Impulso':b0.type==='tutoria'?'Tutoría':'Reposición', refresh: render });
+  render();
+}
+
+/* =====================================================================
+   ALERTAS
+   ===================================================================== */
+function viewAlerts(){
+  const all = computeAlerts();
+  const open = all.filter(a => !S.alertsDone[a.key]), done = all.filter(a => S.alertsDone[a.key] && a.sev!=='info');
+  const sec = (title, list, hint) => `<div class="sec-h"><h2>${title}</h2><span class="count">${list.length}</span></div>${hint?`<p class="small muted" style="margin:-4px 0 10px">${hint}</p>`:''}
+    ${list.length ? `<div class="stack">${list.map(alertCard).join('')}</div>` : `<div class="empty">Nada pendiente.</div>`}`;
+  const crit = open.filter(a => a.sev==='crit');
+  const pagos = open.filter(a => a.sev==='warn' && ['pagos','renov','repo'].includes(a.cat));
+  const esp = open.filter(a => a.cat==='espera');
+  const info = open.filter(a => a.sev==='info' && a.cat==='pagos');
+  const cupo = open.filter(a => a.cat==='cupo');
+  return `<div class="row" style="justify-content:space-between"><h2>Alertas</h2><button class="btn sm" data-act="view" data-v="reportes">Enviar resumen por correo</button></div>
+    ${sec('Urgente', crit, 'Pagos que no llegaron a tiempo y lugares que deben liberarse u ofrecerse.')}
+    ${sec('Pagos, renovaciones y reposiciones', pagos)}
+    ${sec('Lugares para la lista de espera', esp, `Ordenados por prioridad: ${S.cfg.priority==='plan'?'plan Plus antes que Básico y luego antigüedad':'antigüedad primero y luego plan'}.`)}
+    ${sec('Cupo de Impulso (próximas ' + S.cfg.lookWeeks + ' semanas)', cupo)}
+    ${sec('Prereservas en tiempo', info)}
+    ${done.length ? `<details style="margin-top:22px"><summary class="btn sm">Atendidas (${done.length})</summary><div class="stack" style="margin-top:10px">${done.map(alertCard).join('')}</div></details>` : ''}`;
+}
+function alertCard(a){
+  const isDone = !!S.alertsDone[a.key];
+  const b = a.bid ? S.bookings[a.bid] : null;
+  const acts = [];
+  if (b){
+    const s = stu(b.studentId);
+    if (a.wa) acts.push(waBtn(s.phone, fill(S.cfg.tpl[a.wa.tpl], ctxFor(b, a.wa.ctx)), 'WhatsApp'));
+    if (a.acts.includes('abrir')) acts.push(`<button class="btn sm" data-act="booking" data-id="${b.id}">Abrir</button>`);
+    if (a.acts.includes('pagar')) acts.push(`<button class="btn sm primary" data-act="booking" data-id="${b.id}">Registrar pago</button>`);
+    if (a.acts.includes('liberar') && b.status!=='cancel') acts.push(`<button class="btn sm danger" data-act="release" data-id="${b.id}">Liberar lugar</button>`);
+    if (a.acts.includes('renovar')) acts.push(`<button class="btn sm sun" data-act="renew" data-id="${b.id}">Crear renovación</button>`);
+  }
+  if (a.waRaw) acts.push(waBtn(a.phone, a.waRaw, 'Ofrecer por WhatsApp'));
+  if (a.wid) acts.push(`<button class="btn sm" data-act="wait2pre" data-id="${a.wid}">Crear prereserva</button>`);
+  if (a.slotD) acts.push(`<button class="btn sm" data-act="slot" data-d="${a.slotD}" data-h="${a.slotH}">Ver horario</button>`);
+  if (a.sev!=='info') acts.push(`<button class="btn sm ghost" data-act="${isDone?'undone':'done'}" data-k="${esc(a.key)}">${isDone?'Reabrir':'Marcar atendida'}</button>`);
+  let cands = '';
+  if (a.keys && a.keys.length){
+    const set = new Map(); a.keys.forEach(k => candidatesFor(k).forEach(c => set.set(c.id, c)));
+    const list = [...set.values()].sort(prioCmp);
+    cands = list.length ? `<div class="cands"><span class="lbl">Interesados en esos horarios</span>${list.slice(0,5).map((c,i) => candRow(c,i)).join('')}</div>` : `<span class="small muted">Nadie en lista de espera para esos horarios.</span>`;
+  }
+  return `<div class="alert ${a.sev} ${isDone?'done':''}"><span class="stripe"></span><div class="body"><b>${esc(a.title)}</b><span class="small">${esc(a.body)}</span>${cands}<div class="row">${acts.join('')}</div></div></div>`;
+}
+async function markAlert(key, done){
+  const m = Object.assign({}, S.alertsDone);
+  if (done) m[key] = new Date().toISOString(); else delete m[key];
+  /* depurar marcas de más de 90 días */
+  const cut = Date.now() - 90*864e5;
+  for (const k of Object.keys(m)) if (new Date(m[k]).getTime() < cut) delete m[k];
+  S.alertsDone = m; S.memo = {}; renderMain();
+  await dbSet('config', 'alerts', { done: m });
+}
+
+/* =====================================================================
+   ALUMNOS
+   ===================================================================== */
+let stuQuery = '', stuFilter = 'activos';
+function viewStudents(){
+  const T = todayS();
+  let list = Object.values(S.students).sort((a,b) => a.name.localeCompare(b.name,'es'));
+  if (stuFilter==='activos') list = list.filter(s => s.active!==false);
+  if (stuFilter==='conplan') list = list.filter(s => currentPlanBooking(s.id));
+  if (stuFilter==='inactivos') list = list.filter(s => s.active===false);
+  const q = stuQuery.toLowerCase();
+  if (q) list = list.filter(s => (s.name+' '+(s.tutor||'')+' '+(s.phone||'')).toLowerCase().includes(q));
+  return `<div class="toolbar"><h2>Alumnos</h2><div class="row"><button class="btn primary" data-act="student" data-id="">+ Nuevo alumno</button></div></div>
+    <div class="row" style="margin-bottom:12px"><input type="text" id="stu-q" placeholder="Buscar por alumno, tutor o teléfono" value="${esc(stuQuery)}" style="max-width:340px">
+    <div class="seg">${[['activos','Activos'],['conplan','Con plan vigente'],['inactivos','Inactivos'],['todos','Todos']].map(([k,l])=>`<button data-act="stufilter" data-f="${k}" aria-pressed="${stuFilter===k}">${l}</button>`).join('')}</div></div>
+    ${list.length ? `<div class="panel scroll-x" style="padding:6px"><table class="list"><thead><tr><th>Alumno</th><th>Tutor</th><th>Plan</th><th>Antigüedad</th><th>Situación actual</th></tr></thead><tbody>
+    ${list.map(s => { const pb = currentPlanBooking(s.id); const nextT = S.bk.filter(b => b.studentId===s.id && b.type!=='impulso' && isActive(b) && b.date>=T).sort((a,b)=>a.date<b.date?-1:1)[0];
+      return `<tr class="click" data-act="student" data-id="${s.id}"><td><b>${esc(labelOf(s))}</b></td><td>${esc(s.tutor||'—')}<div class="small muted">${esc(s.phone||'')}</div></td><td>${planChip(s.plan)}</td><td>${fmtDY(s.since)}</td>
+      <td>${pb ? `${statusChip(pb)} <span class="small">${esc(fmtSlots(pb.slots))} · hasta ${fmtD(pb.end)}</span>` : '<span class="small muted">Sin plan vigente</span>'}${nextT?`<div class="small">${nextT.type==='repo'?'Reposición':'Tutoría'} ${fmtD(nextT.date)} ${hourLbl(nextT.hour)}</div>`:''}</td></tr>`; }).join('')}
+    </tbody></table></div>` : `<div class="empty">${Object.keys(S.students).length ? 'Ningún alumno coincide con la búsqueda.' : 'Aún no hay alumnos. Registra el primero con “+ Nuevo alumno” o al crear una reserva.'}</div>`}`;
+}
+function openStudent(id){
+  const s = id ? S.students[id] : { name:'', tutor:'', phone:'', plan:'basico', since:todayS(), prefs:[], notes:'', active:true };
+  if (!s) return;
+  const prefs = new Set(s.prefs||[]);
+  const hrs = [9,10,13,14,16,17];
+  const bks = id ? S.bk.filter(b => b.studentId===id).sort((a,b) => ((b.start||b.date) > (a.start||a.date) ? 1 : -1)) : [];
+  const waits = id ? Object.values(S.waitlist).filter(w => w.studentId===id && w.status==='activa') : [];
+  openModal(id ? esc(labelOf(s)) : 'Nuevo alumno', `
+    <div class="grid2">
+      <div class="field"><label for="st-name">Nombre del alumno</label><input id="st-name" type="text" value="${esc(s.name)}"></div>
+      <div class="field"><label for="st-tutor">Padre, madre o tutor</label><input id="st-tutor" type="text" value="${esc(s.tutor||'')}"></div>
+      <div class="field"><label for="st-phone">WhatsApp del tutor (10 dígitos)</label><input id="st-phone" type="tel" inputmode="numeric" value="${esc(s.phone||'')}"></div>
+      <div class="field"><label for="st-plan">Plan</label><select id="st-plan">${Object.keys(S.cfg.plans).map(p=>`<option value="${p}" ${s.plan===p?'selected':''}>${esc(planName(p))} (${S.cfg.plans[p].hours} h/sem, ${S.cfg.plans[p].repos} reposición${S.cfg.plans[p].repos>1?'es':''})</option>`).join('')}<option value="ninguno" ${s.plan==='ninguno'?'selected':''}>Sin plan (solo tutorías)</option></select></div>
+      <div class="field"><label for="st-since">Alumno desde (antigüedad)</label><input id="st-since" type="date" value="${s.since||todayS()}"></div>
+      <div class="field"><label for="st-active">Situación</label><select id="st-active"><option value="1" ${s.active!==false?'selected':''}>Activo</option><option value="0" ${s.active===false?'selected':''}>Inactivo</option></select></div>
+    </div>
+    <div><div class="lbl" style="margin-bottom:6px">Horarios de preferencia (Impulso)</div>
+      <div class="scroll-x"><table class="pick"><thead><tr><th></th>${IMP_DOWS.map(w=>`<th>${DOWS[w]}</th>`).join('')}</tr></thead><tbody>
+      ${hrs.map(h => `<tr><td class="h">${rangeLbl(h)}</td>${IMP_DOWS.map(w => { const k = w+'-'+h; if (SLOT[k]!=='imp') return `<td><span class="pk na">—</span></td>`; return `<td><label class="pk ${prefs.has(k)?'on':''}"><input type="checkbox" data-pref="${k}" ${prefs.has(k)?'checked':''}><span>${prefs.has(k)?'Sí':'·'}</span></label></td>`; }).join('')}</tr>`).join('')}
+      </tbody></table></div>
+      <p class="small muted" style="margin:6px 0 0">Sirven para proponer horarios y para la lista de espera.</p></div>
+    <div class="field"><label for="st-notes">Notas</label><textarea id="st-notes">${esc(s.notes||'')}</textarea></div>
+    <div class="err" id="st-err" role="alert"></div>
+    ${id ? `<div><div class="lbl" style="margin-bottom:6px">Historial</div>${bks.length ? `<table class="list"><tbody>${bks.map(b => `<tr class="click" data-act="booking" data-id="${b.id}"><td>${typeChip(b)}</td><td class="small">${b.type==='impulso'?`${fmtD(b.start)}–${fmtD(b.end)} · ${esc(fmtSlots(b.slots))}`:`${fmtD(b.date)} ${hourLbl(b.hour)}`}</td><td>${statusChip(b)}</td></tr>`).join('')}</tbody></table>` : '<span class="small muted">Sin reservas.</span>'}</div>
+    ${waits.length ? `<div class="note">En lista de espera para ${waits.map(w=>esc(fmtSlots(w.slots))).join('; ')}.</div>` : ''}` : ''}`,
+    `${id ? `${waBtn(s.phone, `Hola ${s.tutor||''}, le escribimos de Impulso Académico.`, 'WhatsApp', false)}
+       <button class="btn" data-act="addwait" data-id="${id}">Agregar a lista de espera</button>
+       <button class="btn sun" data-act="newimp" data-stu="${id}">Reserva Impulso</button>
+       <button class="btn rose" data-act="newtut" data-stu="${id}">Tutoría</button>` : ''}
+     <button class="btn primary" id="st-save">Guardar</button>`, { wide:true });
+  $('#m-body').addEventListener('change', e => { const k = e.target.dataset.pref; if (!k) return; const l = e.target.closest('.pk'); l.classList.toggle('on', e.target.checked); l.querySelector('span').textContent = e.target.checked ? 'Sí' : '·'; });
+  $('#st-save').onclick = async () => {
+    const name = $('#st-name').value.trim(), phone = $('#st-phone').value.replace(/\D/g,'');
+    if (!name) return $('#st-err').textContent = 'Escribe el nombre del alumno.';
+    if (phone.length < 10) return $('#st-err').textContent = 'El WhatsApp debe tener 10 dígitos.';
+    const doc = { ...(id ? S.students[id] : {}), name, tutor:$('#st-tutor').value.trim(), phone, plan:$('#st-plan').value, since:$('#st-since').value || todayS(),
+      active: $('#st-active').value==='1', notes:$('#st-notes').value, prefs: $$('[data-pref]').filter(x=>x.checked).map(x=>x.dataset.pref).sort(keySort) };
+    delete doc.id;
+    if (!id) doc.createdAt = new Date().toISOString();
+    const sid = id || newId('students');
+    if (await dbSet('students', sid, doc)){ toast('Alumno guardado'); if (!id) openStudent(sid); }
+  };
+}
+
+/* =====================================================================
+   LISTA DE ESPERA
+   ===================================================================== */
+function viewWait(){
+  const list = activeWait();
+  return `<div class="toolbar"><h2>Lista de espera</h2><button class="btn primary" data-act="addwait" data-id="">+ Agregar a la lista</button></div>
+    <p class="small muted" style="margin-top:-6px">Prioridad actual: <b>${S.cfg.priority==='plan'?'plan Plus antes que Básico, luego antigüedad':'antigüedad primero, luego plan'}</b> (se cambia en Ajustes). “Disponible desde” es la primera fecha en que todos sus horarios tienen lugar durante un mes completo.</p>
+    ${list.length ? `<div class="panel scroll-x" style="padding:6px"><table class="list"><thead><tr><th>#</th><th>Alumno</th><th>Plan</th><th>Antigüedad</th><th>Horarios que busca</th><th>Disponible desde</th><th></th></tr></thead><tbody>
+    ${list.map((w,i) => { const s = stu(w.studentId), av = availableFrom(w);
+      return `<tr><td><b>${i+1}</b></td><td><b>${esc(labelOf(s))}</b><div class="small muted">${esc(s.tutor||'')}</div>${w.note?`<div class="small">${esc(w.note)}</div>`:''}</td><td>${planChip(s.plan)}</td><td>${fmtDY(s.since)}</td><td class="small">${esc(fmtSlots(w.slots))}${w.from?`<div class="muted">a partir del ${fmtD(w.from)}</div>`:''}</td>
+      <td>${av ? `<b>${fmtD(av)}</b>` : '<span class="small muted">Sin lugar en 6 meses</span>'}</td>
+      <td><div class="row">${av ? waBtn(s.phone, ofertaMsg(w, av), 'Ofrecer') : ''}
+      <button class="btn sm" data-act="wait2pre" data-id="${w.id}">Crear prereserva</button><button class="btn sm ghost" data-act="waitedit" data-id="${w.id}">Editar</button><button class="btn sm ghost" data-act="waitclose" data-id="${w.id}">Quitar</button></div></td></tr>`; }).join('')}
+    </tbody></table></div>` : `<div class="empty">Nadie en lista de espera. Cuando un grupo esté lleno, agrega aquí al alumno con los horarios que busca; la agenda te avisará cuando se libere un lugar.</div>`}`;
+}
+function openWaitForm(studentId, waitId){
+  const w = waitId ? S.waitlist[waitId] : null;
+  const sid0 = w ? w.studentId : studentId || '';
+  const slots = new Set(w ? w.slots : (sid0 ? (stu(sid0).prefs||[]).filter(k=>SLOT[k]==='imp') : []));
+  const hrs = [9,10,13,14,16,17];
+  openModal(w ? 'Editar lista de espera' : 'Agregar a lista de espera', `
+    <div class="grid2"><div class="field"><label for="wf-stu">Alumno</label><select id="wf-stu" ${w?'disabled':''}>${studentOptions(sid0)}</select></div>
+    <div class="field"><label for="wf-from">Puede empezar a partir de</label><input id="wf-from" type="date" value="${w?.from || todayS()}"></div></div>
+    ${newStudentFields('wf')}
+    <div><div class="lbl" style="margin-bottom:6px">Horarios que busca</div><div class="scroll-x"><table class="pick"><thead><tr><th></th>${IMP_DOWS.map(x=>`<th>${DOWS[x]}</th>`).join('')}</tr></thead><tbody>
+      ${hrs.map(h => `<tr><td class="h">${rangeLbl(h)}</td>${IMP_DOWS.map(x => { const k = x+'-'+h; if (SLOT[k]!=='imp') return `<td><span class="pk na">—</span></td>`; return `<td><label class="pk ${slots.has(k)?'on':''}"><input type="checkbox" data-ws="${k}" ${slots.has(k)?'checked':''}><span>${slots.has(k)?'Sí':'·'}</span></label></td>`; }).join('')}</tr>`).join('')}
+    </tbody></table></div></div>
+    <div class="field"><label for="wf-note">Nota (opcional)</label><input id="wf-note" type="text" value="${esc(w?.note||'')}" placeholder="Ej. acepta cualquier tarde"></div>
+    <div class="err" id="wf-err" role="alert"></div>`,
+    `<button class="btn" data-act="close">Cancelar</button><button class="btn primary" id="wf-save">Guardar</button>`, { wide:true });
+  $('#wf-stu').onchange = e => { $('#wf-new').hidden = e.target.value!=='__new'; };
+  $('#m-body').addEventListener('change', e => { const k = e.target.dataset.ws; if (!k) return; const l = e.target.closest('.pk'); l.classList.toggle('on', e.target.checked); l.querySelector('span').textContent = e.target.checked ? 'Sí' : '·'; });
+  $('#wf-save').onclick = async () => {
+    try {
+      const sel = $('#wf-stu').value; if (!sel) throw 'Elige un alumno.';
+      const ks = $$('[data-ws]').filter(x=>x.checked).map(x=>x.dataset.ws).sort(keySort);
+      if (!ks.length) throw 'Marca al menos un horario.';
+      const sid = await resolveStudent('wf', sel);
+      const id = waitId || newId('waitlist');
+      const doc = { ...(w||{}), studentId:sid, slots:ks, from:$('#wf-from').value || todayS(), note:$('#wf-note').value.trim(), status:'activa' };
+      delete doc.id;
+      if (!w) doc.createdAt = new Date().toISOString();
+      if (await dbSet('waitlist', id, doc)){ toast('Lista de espera actualizada'); closeModal(); }
+    } catch(e){ $('#wf-err').textContent = typeof e==='string' ? e : 'No se pudo guardar.'; }
+  };
+}
+
+/* =====================================================================
+   REPORTES
+   ===================================================================== */
+const REPORTS = [
+  ['resumen','Resumen general'], ['alertas','Alertas pendientes'], ['ocupacion','Ocupación de Impulso por horario'],
+  ['pagos','Pagos verificados en el rango'], ['prereservas','Prereservas esperando pago'], ['vencimientos','Planes que terminan (próximos 14 días)'],
+  ['espera','Lista de espera'], ['tutorias','Tutorías y reposiciones en el rango'], ['alumnos','Alumnos con plan vigente']
+];
+let repSel = new Set(['resumen','alertas','prereservas','vencimientos']);
+let repFrom = null, repTo = null, repText = '';
+function viewReports(){
+  const T = todayS();
+  repFrom = repFrom || ds(new Date(pd(T).getFullYear(), pd(T).getMonth(), 1));
+  repTo = repTo || T;
+  return `<h2>Reportes</h2>
+  <div class="grid2" style="margin-top:12px;align-items:start">
+    <div class="panel stack">
+      <div class="lbl">Qué incluir</div>
+      ${REPORTS.map(([k,l]) => `<label class="row"><input type="checkbox" data-rep="${k}" ${repSel.has(k)?'checked':''}> ${l}</label>`).join('')}
+      <div class="grid2"><div class="field"><label for="rp-from">Desde</label><input id="rp-from" type="date" value="${repFrom}"></div><div class="field"><label for="rp-to">Hasta</label><input id="rp-to" type="date" value="${repTo}"></div></div>
+      <p class="small muted" style="margin:0">El rango aplica a pagos y a tutorías/reposiciones. Lo demás se calcula al día de hoy.</p>
+      <button class="btn primary" id="rp-gen">Generar reporte</button>
+    </div>
+    <div class="panel stack" style="min-width:0">
+      <div class="lbl">Enviar a</div>
+      <div class="row"><b style="user-select:all">${esc(S.cfg.reportEmail)}</b></div>
+      <div id="rp-out">${repText ? reportOutHtml() : '<div class="empty">Elige las secciones y pulsa “Generar reporte”.</div>'}</div>
+    </div>
+  </div>`;
+}
+function reportOutHtml(){
+  const subj = `Reporte Impulso Académico · ${fmtDY(todayS())}`;
+  const body = repText.length > 1800 ? repText.slice(0,1800) + '\n\n[Reporte recortado: pega el texto completo desde la agenda]' : repText;
+  return `<pre class="report" id="rp-pre">${esc(repText)}</pre>
+    <div class="row"><button class="btn primary" data-act="repcopy">Copiar reporte</button>
+    <a class="btn" href="mailto:${esc(S.cfg.reportEmail)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}">Abrir en mi correo</a>
+    <button class="btn" data-act="repdl">Descargar (.html)</button></div>
+    <p class="small muted" style="margin:0">La agenda no envía correos por sí sola. “Abrir en mi correo” prepara el mensaje en tu app de correo (en algunos dispositivos no responde; en ese caso copia el reporte y pégalo en un correo nuevo).</p>`;
+}
+function bindReports(){
+  $$('[data-rep]').forEach(c => c.onchange = () => { if (c.checked) repSel.add(c.dataset.rep); else repSel.delete(c.dataset.rep); });
+  $('#rp-from').onchange = e => repFrom = e.target.value;
+  $('#rp-to').onchange = e => repTo = e.target.value;
+  $('#rp-gen').onclick = () => { repText = buildReport([...repSel], repFrom, repTo); $('#rp-out').innerHTML = reportOutHtml(); };
+}
+function buildReport(sel, from, to){
+  const T = todayS(), L = [];
+  const H = t => { L.push(''); L.push(t.toUpperCase()); L.push('-'.repeat(Math.min(60, t.length))); };
+  L.push(`IMPULSO ACADÉMICO · Reporte del ${fmtDY(T)} (${hm(new Date())})`);
+  const order = REPORTS.map(r=>r[0]).filter(k => sel.includes(k));
+  for (const k of order){
+    if (k==='resumen'){
+      H('Resumen general');
+      const m = mondayOf(T); let used=0, total=0;
+      for (const key of IMP_KEYS){ const d = addDays(m, kDow(key)-1); total += S.cfg.capImpulso; used += Math.min(S.cfg.capImpulso, occ(d, kHour(key)).length); }
+      const act = new Set(S.bk.filter(b => b.type==='impulso' && b.status==='conf' && b.start<=T && T<=b.end).map(b=>b.studentId));
+      L.push(`Alumnos con plan pagado vigente: ${act.size}`);
+      L.push(`Ocupación de Impulso esta semana: ${used} de ${total} lugares (${total?Math.round(used/total*100):0}%)`);
+      L.push(`Prereservas esperando pago: ${S.bk.filter(b=>b.status==='pre').length} (vencidas: ${S.bk.filter(isOverdue).length})`);
+      L.push(`En lista de espera: ${activeWait().length}`);
+      L.push(`Alertas pendientes: ${pendingCount()}`);
+    }
+    if (k==='alertas'){
+      H('Alertas pendientes');
+      const al = computeAlerts().filter(a => !S.alertsDone[a.key] && a.sev!=='info');
+      if (!al.length) L.push('Sin alertas pendientes.');
+      al.forEach(a => L.push(`${a.sev==='crit'?'[URGENTE] ':'• '}${a.title}\n   ${a.body}`));
+    }
+    if (k==='ocupacion'){
+      H(`Ocupación de Impulso (próximas ${S.cfg.lookWeeks} semanas)`);
+      for (const key of IMP_KEYS){
+        const vals = [...occurrences(key, T, addDays(T, 7*S.cfg.lookWeeks-1))].map(d => `${pd(d).getDate()}/${pd(d).getMonth()+1}: ${occ(d,kHour(key)).length}/${S.cfg.capImpulso}`);
+        L.push(`${DOWL[kDow(key)].padEnd(10)} ${rangeLbl(kHour(key)).padEnd(20)} ${vals.join('  ')}`);
+      }
+    }
+    if (k==='pagos'){
+      H(`Pagos verificados del ${fmtDY(from)} al ${fmtDY(to)}`);
+      const ps = S.bk.filter(b => b.paidAt && b.paidAt.slice(0,10) >= from && b.paidAt.slice(0,10) <= to).sort((a,b)=>a.paidAt<b.paidAt?-1:1);
+      let sum = 0;
+      ps.forEach(b => { sum += Number(b.amount)||0; const d = new Date(b.paidAt); L.push(`${fmtDY(ds(d))}  ${labelOf(stu(b.studentId)).padEnd(26)} ${b.type==='impulso'?`Impulso ${planName(b.plan)} (${fmtD(b.start)}–${fmtD(b.end)})`:`Tutoría ${fmtD(b.date)}`}  ${b.amount?'$'+Number(b.amount).toLocaleString('es-MX'):'(sin monto)'}${b.status==='cancel'?' · CANCELADA':''}`); });
+      L.push(ps.length ? `Total registrado: $${sum.toLocaleString('es-MX')} en ${ps.length} pago(s)` : 'Sin pagos en el rango.');
+    }
+    if (k==='prereservas'){
+      H('Prereservas esperando pago');
+      const ps = S.bk.filter(b => b.status==='pre').sort((a,b) => deadline(a)-deadline(b));
+      if (!ps.length) L.push('Ninguna.');
+      ps.forEach(b => L.push(`${isOverdue(b)?'[VENCIDA] ':''}${labelOf(stu(b.studentId))} · ${b.type==='impulso'?'Impulso '+fmtSlots(b.slots)+' desde '+fmtD(b.start):'Tutoría '+fmtD(b.date)+' '+hourLbl(b.hour)} · límite ${fmtDT(deadline(b))}`));
+    }
+    if (k==='vencimientos'){
+      H('Planes que terminan en los próximos 14 días');
+      const vs = S.bk.filter(b => b.type==='impulso' && b.status==='conf' && b.end>=T && b.end<=addDays(T,14)).sort((a,b)=>a.end<b.end?-1:1);
+      if (!vs.length) L.push('Ninguno.');
+      vs.forEach(b => { const r = renewalOf(b); L.push(`${labelOf(stu(b.studentId))} · termina ${fmtD(b.end)} · ${fmtSlots(b.slots)} · ${r ? (r.status==='conf'?'renovación pagada':'renovación en prereserva') : 'sin renovar (límite '+fmtDT(renewalDeadline(b))+')'}`); });
+    }
+    if (k==='espera'){
+      H('Lista de espera (en orden de prioridad)');
+      const ws = activeWait(); if (!ws.length) L.push('Vacía.');
+      ws.forEach((w,i) => { const s = stu(w.studentId), av = availableFrom(w); L.push(`${i+1}. ${labelOf(s)} (${planName(s.plan)}, desde ${fmtDY(s.since)}) · busca ${fmtSlots(w.slots)} · ${av?'lugar desde '+fmtD(av):'sin lugar aún'}`); });
+    }
+    if (k==='tutorias'){
+      H(`Tutorías y reposiciones del ${fmtDY(from)} al ${fmtDY(to)}`);
+      const ts = S.bk.filter(b => (b.type==='tutoria'||b.type==='repo') && b.date>=from && b.date<=to && b.status!=='cancel').sort((a,b)=>(a.date+pad(a.hour))<(b.date+pad(b.hour))?-1:1);
+      if (!ts.length) L.push('Ninguna.');
+      ts.forEach(b => L.push(`${fmtD(b.date)} ${hourLbl(b.hour)} · ${b.type==='repo'?'Reposición':'Tutoría'} · ${labelOf(stu(b.studentId))} · ${b.status==='pre'?'prereserva':b.status==='desplazada'?'desplazada':'confirmada'}`));
+    }
+    if (k==='alumnos'){
+      H('Alumnos con plan vigente');
+      const as = S.bk.filter(b => b.type==='impulso' && b.status==='conf' && b.start<=T && T<=b.end).sort((a,b)=>stu(a.studentId).name.localeCompare(stu(b.studentId).name,'es'));
+      if (!as.length) L.push('Ninguno.');
+      as.forEach(b => { const s = stu(b.studentId); L.push(`${labelOf(s)} · ${planName(b.plan)} · ${fmtSlots(b.slots)} · hasta ${fmtD(b.end)} · tutor ${s.tutor||'—'} ${s.phone||''}`); });
+    }
+  }
+  return L.join('\n');
+}
+
+/* =====================================================================
+   AJUSTES
+   ===================================================================== */
+function viewSettings(){
+  const c = S.cfg;
+  return `<h2>Ajustes</h2>
+  <div class="grid2" style="margin-top:12px;align-items:start">
+    <form class="panel stack" id="pw-form" novalidate>
+      <h3>Cambiar contraseña</h3>
+      <div class="small muted">Usuario: <b>${esc(S.auth?.email || INITIAL_EMAIL)}</b>${S.auth?.changedAt && !S.auth.initial ? ` · último cambio ${fmtDT(new Date(S.auth.changedAt))}` : ''}</div>
+      <div class="field"><label for="pw-cur">Contraseña actual</label><input id="pw-cur" type="password" autocomplete="current-password"></div>
+      <div class="field"><label for="pw-new">Nueva contraseña</label><input id="pw-new" type="password" autocomplete="new-password"></div>
+      <ul class="pwrules" id="pw-rules">${pwChecks('').map(([l])=>`<li>${l}</li>`).join('')}</ul>
+      <div class="field"><label for="pw-rep">Repetir nueva contraseña</label><input id="pw-rep" type="password" autocomplete="new-password"></div>
+      <div class="err" id="pw-err" role="alert"></div>
+      <button class="btn primary" type="submit">Guardar contraseña</button>
+    </form>
+    <form class="panel stack" id="cfg-form" novalidate>
+      <h3>Reglas del centro</h3>
+      <div class="grid2">
+        <div class="field"><label for="cf-capi">Cupo Impulso por hora</label><input id="cf-capi" type="number" min="1" value="${c.capImpulso}"></div>
+        <div class="field"><label for="cf-capt">Cupo tutoría por hora</label><input id="cf-capt" type="number" min="1" value="${c.capTutoria}"></div>
+        <div class="field"><label for="cf-low">Avisar cuando queden ≤</label><input id="cf-low" type="number" min="0" value="${c.lowThreshold}"></div>
+        <div class="field"><label for="cf-ren">Avisar renovación (días antes)</label><input id="cf-ren" type="number" min="1" value="${c.renewDays}"></div>
+        <div class="field"><label for="cf-look">Semanas a revisar en alertas de cupo</label><input id="cf-look" type="number" min="1" max="12" value="${c.lookWeeks}"></div>
+        <div class="field"><label for="cf-prio">Prioridad en lista de espera</label><select id="cf-prio"><option value="plan" ${c.priority==='plan'?'selected':''}>Plan Plus primero, luego antigüedad</option><option value="antiguedad" ${c.priority==='antiguedad'?'selected':''}>Antigüedad primero, luego plan</option></select></div>
+        <div class="field"><label for="cf-mail">Correo para reportes</label><input id="cf-mail" type="email" value="${esc(c.reportEmail)}"></div>
+        <div class="field"><label for="cf-tp">Precio tutoría (opcional)</label><input id="cf-tp" type="number" min="0" value="${c.tutoriaPrice||''}"></div>
+      </div>
+      <div class="lbl">Planes</div>
+      ${Object.keys(c.plans).map(p => `<div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr))">
+        <div class="field"><label for="cp-${p}-n">Nombre</label><input id="cp-${p}-n" type="text" value="${esc(c.plans[p].name)}"></div>
+        <div class="field"><label for="cp-${p}-h">Horas/semana</label><select id="cp-${p}-h">${[2,4].map(h=>`<option ${c.plans[p].hours===h?'selected':''}>${h}</option>`).join('')}</select></div>
+        <div class="field"><label for="cp-${p}-r">Reposiciones/mes</label><input id="cp-${p}-r" type="number" min="0" value="${c.plans[p].repos}"></div>
+        <div class="field"><label for="cp-${p}-p">Precio (opcional)</label><input id="cp-${p}-p" type="number" min="0" value="${c.plans[p].price||''}"></div></div>`).join('')}
+      <div class="lbl">Mensajes de WhatsApp</div>
+      <p class="small muted" style="margin:0">Puedes usar {alumno}, {tutor}, {plan}, {horario}, {fecha}, {fin}, {hora} y {limite}. {plan} se escribe como “Plan Básico”, “Plan Plus”, “Tutoría” o “Reposición” según el caso.</p>
+      ${Object.keys(TPL_NAMES).map(k => `<div class="field"><label for="tp-${k}">${TPL_NAMES[k]}</label><textarea id="tp-${k}">${esc(c.tpl[k])}</textarea></div>`).join('')}
+      <div class="err" id="cf-err" role="alert"></div>
+      <button class="btn primary" type="submit">Guardar ajustes</button>
+    </form>
+    <div class="panel stack">
+      <h3>Respaldo</h3>
+      <p class="small muted" style="margin:0">Descarga todos los alumnos, reservas, lista de espera y ajustes en un archivo. ${S.local ? '<b>En esta versión los datos viven solo en este navegador:</b> si se borran los datos de navegación o cambias de computadora, se recuperan con el respaldo.' : 'Guárdalo de vez en cuando.'}</p>
+      <button class="btn" data-act="backup">Descargar respaldo (.json)</button>
+      <div class="field"><label for="imp-file">Importar respaldo</label><input id="imp-file" type="file" accept=".json,application/json"></div>
+      <p class="small muted" style="margin:0">Sirve para pasar los datos entre la versión de claude.ai y el archivo HTML, o de una computadora a otra.</p>
+    </div>
+  </div>`;
+}
+function bindSettings(){
+  const nw = $('#pw-new');
+  nw.oninput = () => { $('#pw-rules').innerHTML = pwChecks(nw.value).map(([l,ok])=>`<li class="${ok?'ok':''}">${l}</li>`).join(''); };
+  $('#pw-form').onsubmit = async e => {
+    e.preventDefault(); const err = $('#pw-err'); err.textContent = '';
+    const cur = $('#pw-cur').value, np = nw.value, rp = $('#pw-rep').value;
+    const a = S.auth;
+    const curOk = a ? (await pbkdf2(cur, a.salt, a.iter)) === a.hash : cur === INITIAL_PASS;
+    if (!curOk) return err.textContent = 'La contraseña actual no es correcta.';
+    if (!pwChecks(np).every(x=>x[1])) return err.textContent = 'La nueva contraseña no cumple todos los requisitos.';
+    if (np !== rp) return err.textContent = 'Las contraseñas nuevas no coinciden.';
+    if (np === cur) return err.textContent = 'La nueva contraseña debe ser distinta a la actual.';
+    if (await dbSet('config', 'auth', await makeAuth(a?.email || INITIAL_EMAIL, np, false))){ toast('Contraseña actualizada'); $('#pw-form').reset(); }
+  };
+  $('#cfg-form').onsubmit = async e => {
+    e.preventDefault();
+    const n = (id, min) => { const v = Number($(id).value); return Number.isFinite(v) && v >= min ? Math.floor(v) : null; };
+    const capI = n('#cf-capi',1), capT = n('#cf-capt',1), low = n('#cf-low',0), ren = n('#cf-ren',1), look = n('#cf-look',1);
+    if ([capI,capT,low,ren,look].some(x => x===null)) return $('#cf-err').textContent = 'Revisa los números: deben ser enteros positivos.';
+    const plans = {};
+    for (const p of Object.keys(S.cfg.plans)) plans[p] = { name:$(`#cp-${p}-n`).value.trim()||S.cfg.plans[p].name, hours:Number($(`#cp-${p}-h`).value), repos:Math.max(0,Number($(`#cp-${p}-r`).value)||0), price:Number($(`#cp-${p}-p`).value)||0 };
+    const tpl = {}; for (const k of Object.keys(TPL_NAMES)) tpl[k] = $(`#tp-${k}`).value;
+    const doc = { capImpulso:capI, capTutoria:capT, lowThreshold:low, renewDays:ren, lookWeeks:Math.min(12,look), priority:$('#cf-prio').value,
+      reportEmail:$('#cf-mail').value.trim()||INITIAL_EMAIL, tutoriaPrice:Number($('#cf-tp').value)||0, plans, tpl };
+    if (await dbSet('config', 'main', doc)) toast('Ajustes guardados');
+  };
+}
+
+/* =====================================================================
+   ACCIONES (delegación de clics)
+   ===================================================================== */
+const ACT = {
+  overlay: (el, e) => { if (e.target === el) closeModal(); },
+  close: () => closeModal(),
+  logout: () => logout(),
+  view: el => { closeModal(); go(el.dataset.v); },
+  calmode: el => { S.cal.mode = el.dataset.m; renderMain(); },
+  calnav: el => { const n = +el.dataset.n, c = S.cal;
+    if (c.mode==='dia'){ let d = addDays(c.date, n); if (dowOf(d)===0) d = addDays(d, n); c.date = d; }
+    if (c.mode==='semana') c.date = addDays(c.date, 7*n);
+    if (c.mode==='mes'){ const d = pd(c.date); c.date = ds(new Date(d.getFullYear(), d.getMonth()+n, 1)); }
+    renderMain(); },
+  caltoday: () => { S.cal.date = todayS(); renderMain(); },
+  gotoday: el => { S.cal.date = el.dataset.d; S.cal.mode = 'dia'; renderMain(); window.scrollTo(0,0); },
+  slot: el => openSlot(el.dataset.d, +el.dataset.h),
+  booking: el => openBooking(el.dataset.id),
+  student: el => openStudent(el.dataset.id),
+  stufilter: el => { stuFilter = el.dataset.f; renderMain(); },
+  newimp: el => openImpForm({ key: el.dataset.key, start: el.dataset.start, studentId: el.dataset.stu }),
+  newtut: el => openTutForm({ date: el.dataset.d, hour: el.dataset.h, studentId: el.dataset.stu, type: el.dataset.type }),
+  renew: el => { const b = S.bookings[el.dataset.id]; if (!b) return;
+    openImpForm({ studentId:b.studentId, plan:b.plan, slots:b.slots, start:addDays(b.end,1), renewalOf:b.id }); },
+  release: el => { const b = S.bookings[el.dataset.id]; if (!b) return;
+    askConfirm(`¿Liberar el lugar de ${esc(labelOf(stu(b.studentId)))}?`, 'Liberar', async () => { if (await dbUpdate('bookings', b.id, { status:'cancel', cancelledAt:new Date().toISOString(), cancelReason:'sin pago a tiempo' })) toast('Lugar liberado'); }); },
+  done: el => markAlert(el.dataset.k, true),
+  undone: el => markAlert(el.dataset.k, false),
+  addwait: el => openWaitForm(el.dataset.id),
+  waitedit: el => openWaitForm(null, el.dataset.id),
+  waitclose: el => askConfirm('¿Quitar de la lista de espera?', 'Quitar', async () => { if (await dbUpdate('waitlist', el.dataset.id, { status:'descartada', closedAt:new Date().toISOString() })) toast('Quitado de la lista'); }),
+  wait2pre: el => { const w = S.waitlist[el.dataset.id]; if (!w) return; const av = availableFrom(w);
+    const s = stu(w.studentId); const plan = S.cfg.plans[s.plan] ? s.plan : (w.slots.length>=4?'plus':'basico');
+    openImpForm({ studentId:w.studentId, plan, slots:w.slots, start: av || addDays(todayS(),2) }); },
+  repcopy: () => copyText(repText),
+  repdl: () => saveFile(`reporte-impulso-${todayS()}.html`, `<!doctype html><meta charset="utf-8"><title>Reporte Impulso Académico ${todayS()}</title><pre style="font:14px/1.5 monospace;white-space:pre-wrap">${esc(repText)}</pre>`),
+  backup: async () => { if (await saveFile(`respaldo-impulso-${todayS()}.json`, JSON.stringify({ exportedAt:new Date().toISOString(), config:S.cfg, students:S.students, bookings:S.bookings, waitlist:S.waitlist }, null, 2))){ lsSet('ia-last-backup', Date.now()); renderTabs(); } }
+};
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const fn = ACT[el.dataset.act];
+  if (!fn) return;
+  if (el.tagName==='A') return;
+  if (el.dataset.act==='overlay'){ fn(el, e); return; }
+  e.preventDefault(); fn(el, e);
+});
+document.addEventListener('change', e => {
+  if (e.target.id==='imp-file' && e.target.files && e.target.files[0]){ importBackup(e.target.files[0]); e.target.value = ''; return; }
+  if (e.target.id==='cal-date' && e.target.value){ S.cal.date = e.target.value; renderMain(); }
+  if (e.target.id==='cal-jump' && e.target.value){
+    const v = e.target.value, n = +v.slice(1), T = todayS();
+    if (v[0]==='w'){ S.cal.date = addDays(T, 7*n); S.cal.mode = 'semana'; }
+    else { const d = pd(T); S.cal.date = ds(new Date(d.getFullYear(), d.getMonth()+n, 1)); S.cal.mode = 'mes'; }
+    renderMain();
+  }
+});
+document.addEventListener('input', e => {
+  if (e.target.id==='stu-q'){ stuQuery = e.target.value; const pos = e.target.selectionStart; renderMain(); const q = $('#stu-q'); if (q){ q.focus(); q.setSelectionRange(pos,pos); } }
+});
+document.addEventListener('keydown', e => { if (e.key==='Escape'){ if ($('#confirm-root').innerHTML) $('#confirm-root').innerHTML=''; else if (modalState) closeModal(); } });
+window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (S.logged && VIEWS.some(v=>v[0]===h) && h!==S.view){ S.view = h; renderMain(); } });
+/* refrescar alertas que dependen de la hora (vencimientos) cada 5 minutos */
+setInterval(() => { if (S.logged){ S.memo = {}; renderTabs(); if (S.view==='alertas' || S.view==='calendario') renderMain(); } }, 5*60e3);
+
+/* =====================================================================
+   ARRANQUE
+   ===================================================================== */
+async function boot(){
+  if (!window.crypto || !crypto.subtle){ renderLogin('Este navegador no permite el cifrado necesario para la contraseña. Ábrelo con Chrome, Edge, Safari o Firefox actualizados.'); return; }
+  if (!window.claude || !window.claude.use){
+    /* Archivo independiente: los datos se guardan en este navegador */
+    try { localStorage.setItem('ia-test','1'); localStorage.removeItem('ia-test'); }
+    catch(e){ renderLogin('Este navegador no permite guardar datos (modo privado o almacenamiento bloqueado). Ábrelo en una ventana normal.'); return; }
+    S.db = localDB(); S.local = true;
+    subscribeConfig();
+    const waitL = setInterval(() => { if (S.auth !== undefined){ clearInterval(waitL); if (sessionValid()) enterApp(); else if (!loginRendered) renderLogin(); } }, 50);
+    return;
+  }
+  S.db = await claude.use('db');
+  S.userCap = await claude.use('user');
+  if (S.userCap){ try { S.isOwner = await S.userCap.isOwner(); } catch(e){} }
+  if (!S.db){ renderLogin('No se pudo conectar con la base de datos. Inicia sesión en claude.ai y recarga la página. Si la abriste con un enlace compartido, pide acceso de edición.'); return; }
+  subscribeConfig();
+  const wait = setInterval(() => {
+    if (S.auth !== undefined){ clearInterval(wait); if (sessionValid()) enterApp(); else if (!loginRendered) renderLogin(); }
+  }, 100);
+}
+if (typeof window !== 'undefined' && !window.__TEST__) boot();
+</script>
+</body>
+</html>
