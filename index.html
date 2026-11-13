@@ -232,6 +232,18 @@ pre.report{white-space:pre-wrap;background:var(--surface-2);border-radius:var(--
 .banner .wrap{padding-block:8px;font-size:.88rem;font-weight:700;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 @media (prefers-reduced-motion:no-preference){.modal{animation:pop .16s ease-out}@keyframes pop{from{transform:translateY(8px);opacity:.6}to{transform:none;opacity:1}}}
 </style>
+<style id="fx-style">
+/* ---------- facturación (agregado) ---------- */
+.fx-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin-top:6px}
+.fx-f{display:flex;flex-direction:column;gap:3px;min-width:0;background:var(--surface-2);border-radius:var(--r-s);padding:8px 10px}
+.fx-copy{border:1px dashed var(--line);background:var(--surface);border-radius:6px;padding:4px 8px;font:inherit;font-weight:800;text-align:left;cursor:copy;color:var(--ink);overflow-wrap:anywhere;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.86rem}
+.fx-copy:hover{border-color:var(--ink)}
+.fx-steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:12px}
+.fx-steps li::marker{font-weight:900}
+.kv dd.err{color:var(--bad)}
+.kpi[role="button"]{cursor:pointer}
+table.list select{padding:5px 6px;font-size:.82rem;min-width:130px}
+</style>
 </head>
 <body>
 <div id="app"><div class="login"><div class="login-card"><div class="brand"><span class="brand-mark">IA</span><span>Impulso Académico<small>Agenda privada</small></span></div><p class="muted">Conectando con la base de datos…</p></div></div></div>
@@ -715,7 +727,7 @@ function dbErr(e){
 }
 function subscribeData(){
   if (S.subs.length > 1) return;
-  for (const col of ['students','bookings','waitlist']){
+  for (const col of ['students','bookings','waitlist','fiscal','invoices','cobros']){
     S.subs.push(S.db.collection(col).onSnapshot(snap => {
       const m = {};
       snap.docs.forEach(d => { m[d.id] = Object.assign({ id:d.id }, d.data()); });
@@ -726,9 +738,10 @@ function subscribeData(){
 }
 function subscribeConfig(){
   S.subs.push(S.db.collection('config').onSnapshot(snap => {
-    let auth = null, main = null, alerts = null;
-    snap.docs.forEach(d => { if (d.id==='auth') auth = d.data(); if (d.id==='main') main = d.data(); if (d.id==='alerts') alerts = d.data(); });
+    let auth = null, main = null, alerts = null, fiscal = null, factpin = null;
+    snap.docs.forEach(d => { if (d.id==='auth') auth = d.data(); if (d.id==='main') main = d.data(); if (d.id==='alerts') alerts = d.data(); if (d.id==='fiscal') fiscal = d.data(); if (d.id==='factpin') factpin = d.data(); });
     S.auth = auth; S.cfg = mergeCfg(main); S.alertsDone = (alerts && alerts.done) || {};
+    S.fcfg = mergeFcfg(fiscal); S.factPin = factpin;
     S.memo = {};
     if (S.logged) onData(); else if (!loginRendered) renderLogin();
   }, err => renderLogin('No se pudo leer la configuración. Recarga la página.')));
@@ -795,9 +808,9 @@ async function importBackup(file){
   try { j = JSON.parse(await file.text()); } catch(e){ toast('El archivo no es un respaldo válido (.json).', true); return; }
   if (!j || typeof j!=='object' || !j.students || !j.bookings || !j.waitlist){ toast('El archivo no tiene el formato de respaldo de esta agenda.', true); return; }
   const n = Object.keys(j.students).length, m = Object.keys(j.bookings).length, w = Object.keys(j.waitlist).length;
-  askConfirm(`El respaldo del ${j.exportedAt ? fmtDT(new Date(j.exportedAt)) : '(sin fecha)'} tiene ${n} alumnos, ${m} reservas y ${w} registros de lista de espera. Los registros con el mismo identificador se reemplazarán; los demás se conservan. La contraseña no cambia.`, 'Importar', async () => {
+  askConfirm(`El respaldo del ${j.exportedAt ? fmtDT(new Date(j.exportedAt)) : '(sin fecha)'} tiene ${n} alumnos, ${m} reservas y ${w} registros de lista de espera${j.invoices ? `, además de ${Object.keys(j.invoices).length} facturas y ${Object.keys(j.fiscal||{}).length} datos fiscales` : ''}. Los registros con el mismo identificador se reemplazarán; los demás se conservan. La contraseña no cambia.`, 'Importar', async () => {
     let ok = 0, fail = 0;
-    for (const col of ['students','bookings','waitlist']){
+    for (const col of ['students','bookings','waitlist', ...FACT_COLS.filter(c => j[c] && typeof j[c]==='object')]){
       for (const [id, doc] of Object.entries(j[col])){
         const d = Object.assign({}, doc); delete d.id;
         if (!/^[A-Za-z0-9_\-.~:@+]{1,200}$/.test(id)){ fail++; continue; }
@@ -805,6 +818,7 @@ async function importBackup(file){
       }
     }
     if (j.config){ const c = Object.assign({}, j.config); try { await S.db.collection('config').doc('main').set(c); } catch(e){ fail++; } }
+    if (j.fiscalConfig && typeof j.fiscalConfig==='object'){ try { await S.db.collection('config').doc('fiscal').set(Object.assign({}, j.fiscalConfig)); } catch(e){ fail++; } }
     toast(fail ? `Importados ${ok} registros; ${fail} no se pudieron importar.` : `Respaldo importado: ${ok} registros.`, !!fail);
   }, false);
 }
@@ -873,11 +887,11 @@ function enterApp(){
   S.logged = true;
   subscribeData();
   const h = location.hash.slice(1);
-  if (['calendario','alertas','alumnos','espera','reportes','ajustes'].includes(h)) S.view = h;
+  if (['calendario','alertas','alumnos','espera','reportes','facturas','ajustes'].includes(h)) S.view = h;
   renderShell();
 }
 function logout(){
-  ssSet('ia-sess', null); memSession = null; S.logged = false; closeModal(); renderLogin();
+  ssSet('ia-sess', null); memSession = null; S.logged = false; S.factUnlock = false; S.fxFiles = {}; closeModal(); renderLogin();
 }
 setInterval(() => { if (S.logged && !sessionValid()) { logout(); toast('Sesión cerrada por inactividad'); } }, 60e3);
 let lastTouch = 0;
@@ -890,10 +904,10 @@ let lastTouch = 0;
    - Si otro dispositivo guardó antes, se descarga su versión y se vuelven a
      aplicar encima los cambios pendientes (por documento), sin pisarlos.
    ===================================================================== */
-const GH_FILES = {".github/workflows/respaldo-correo.yml": "# Respaldo por correo de la Agenda Impulso Académico.\n# - Lunes 7:00 am (hora de la Ciudad de México): respaldo semanal, siempre.\n# - Todos los días 9:00 pm: respaldo solo si ese día hubo cambios en la agenda.\n# - Manual: desde la agenda (Ajustes → Enviar respaldo ahora) o desde la pestaña Actions.\n# Ciudad de México está en UTC-6 todo el año (sin horario de verano desde 2022).\nname: Respaldo por correo\n\non:\n  schedule:\n    - cron: '0 13 * * 1'\n    - cron: '0 3 * * *'\n  workflow_dispatch:\n    inputs:\n      motivo:\n        description: 'Motivo del respaldo'\n        required: false\n        default: 'manual'\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: respaldo-correo\n  cancel-in-progress: false\n\njobs:\n  respaldo:\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n    steps:\n      - name: Descargar datos e historial\n        uses: actions/checkout@v5\n        with:\n          fetch-depth: 0\n\n      - name: Enviar respaldo\n        env:\n          SMTP_HOST: ${{ secrets.SMTP_HOST }}\n          SMTP_PORT: ${{ secrets.SMTP_PORT }}\n          SMTP_USER: ${{ secrets.SMTP_USER }}\n          SMTP_PASS: ${{ secrets.SMTP_PASS }}\n          MAIL_TO: ${{ secrets.MAIL_TO }}\n          EVENT_NAME: ${{ github.event_name }}\n          SCHEDULE: ${{ github.event.schedule }}\n          MOTIVO: ${{ github.event.inputs.motivo }}\n          REPO: ${{ github.repository }}\n        run: python3 .github/scripts/enviar_respaldo.py\n", ".github/scripts/enviar_respaldo.py": "#!/usr/bin/env python3\n\"\"\"Envía por correo el respaldo de la Agenda Impulso Académico.\n\nAdjunta:\n  - respaldo-impulso-AAAA-MM-DD.json  (se importa en la agenda: Ajustes → Importar respaldo)\n  - alumnos-AAAA-MM-DD.csv y reservas-AAAA-MM-DD.csv (se abren en Excel)\n\nVariables de entorno (secretos del repositorio):\n  SMTP_USER, SMTP_PASS  obligatorias\n  SMTP_HOST             opcional (si falta, se detecta por el dominio del correo)\n  SMTP_PORT             opcional (465 usa SSL; 587 usa STARTTLS)\n  MAIL_TO               opcional (por defecto contacto@impulsoacademico.mx; varios separados por coma)\n\"\"\"\nimport csv, io, json, os, smtplib, ssl, subprocess, sys\nfrom datetime import datetime, timedelta\nfrom email.message import EmailMessage\nfrom zoneinfo import ZoneInfo\n\nDATA = 'data/agenda.json'\nTZ = ZoneInfo('America/Mexico_City')\nDAILY_CRON = '0 3 * * *'\nDOWS = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom']  # weekday() 0 = lunes\nJS_DOWS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']  # como en la agenda: 0 = domingo\nMES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']\n\n\ndef git(*args):\n    return subprocess.run(['git', *args], capture_output=True, text=True, check=False).stdout.strip()\n\n\ndef fecha(s):\n    if not s:\n        return ''\n    d = datetime.strptime(s[:10], '%Y-%m-%d')\n    return f'{DOWS[d.weekday()]} {d.day} {MES[d.month - 1]}'\n\n\ndef hora(h):\n    h = int(h)\n    return f'{h - 12 if h > 12 else h}{\"pm\" if h >= 12 else \"am\"}'\n\n\ndef horario(slots):\n    by = {}\n    for k in sorted(slots or [], key=lambda k: tuple(map(int, k.split('-')))):\n        d, h = map(int, k.split('-'))\n        by.setdefault(d, []).append(h)\n    parts = []\n    for d, hs in by.items():\n        hs.sort()\n        rangos, ini, prev = [], hs[0], hs[0]\n        for h in hs[1:] + [None]:\n            if h is not None and h == prev + 1:\n                prev = h\n                continue\n            rangos.append(f'{hora(ini)}–{hora(prev + 1)}')\n            if h is not None:\n                ini = prev = h\n        parts.append(f'{JS_DOWS[d]} {\" y \".join(rangos)}')\n    return ', '.join(parts)\n\n\ndef registros_mx(dominio):\n    \"\"\"Servidores de correo (MX) del dominio, usando dig o nslookup del sistema.\"\"\"\n    def run(cmd):\n        try:\n            return subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=20).stdout\n        except (OSError, subprocess.SubprocessError):\n            return ''\n    salida = run(['dig', '+short', 'MX', dominio])\n    hosts = [l.split()[-1].rstrip('.').lower() for l in salida.splitlines() if l.strip() and l.split()[0].isdigit()]\n    if not hosts:\n        salida = run(['nslookup', '-type=mx', dominio])\n        hosts = [l.split()[-1].rstrip('.').lower() for l in salida.splitlines() if 'mail exchanger' in l]\n    return hosts\n\n\n# Servidor de envío según dónde está alojado el correo del dominio\nPROVEEDORES = [\n    (('google.com', 'googlemail.com'), 'Google Workspace (Gmail)', 'smtp.gmail.com', 465),\n    (('outlook.com',), 'Microsoft 365 / Outlook', 'smtp.office365.com', 587),\n    (('zoho',), 'Zoho Mail', 'smtp.zoho.com', 465),\n    (('hostinger',), 'Hostinger', 'smtp.hostinger.com', 465),\n    (('titan.email',), 'Titan Mail', 'smtp.titan.email', 465),\n    (('secureserver.net',), 'GoDaddy', 'smtpout.secureserver.net', 465),\n]\n\n\ndef detectar_smtp(correo):\n    dominio = correo.split('@')[-1].lower()\n    if dominio in ('gmail.com', 'googlemail.com'):\n        return 'Gmail', 'smtp.gmail.com', 465, []\n    mx = registros_mx(dominio)\n    for claves, nombre, host, port in PROVEEDORES:\n        if any(c in h for h in mx for c in claves):\n            return nombre, host, port, mx\n    return 'Servidor propio del dominio (cPanel u otro hosting)', f'mail.{dominio}', 465, mx\n\n\ndef main():\n    now = datetime.now(TZ)\n    hoy = now.strftime('%Y-%m-%d')\n    event = os.environ.get('EVENT_NAME', 'manual')\n    schedule = os.environ.get('SCHEDULE', '')\n    motivo = (os.environ.get('MOTIVO') or '').strip()\n\n    if motivo == 'diagnostico':\n        correo = os.environ.get('SMTP_USER', '').strip() or 'contacto@impulsoacademico.mx'\n        nombre, host, port, mx = detectar_smtp(correo)\n        linea = (f'correo={correo} | mx={\",\".join(mx) or \"(sin registros)\"} | proveedor={nombre} | servidor={host}:{port} | '\n                 f'SMTP_USER={\"sí\" if os.environ.get(\"SMTP_USER\") else \"no\"} SMTP_PASS={\"sí\" if os.environ.get(\"SMTP_PASS\") else \"no\"}')\n        print(f'::notice title=Diagnóstico de correo::{linea}')\n        return 0\n\n    if not os.path.exists(DATA):\n        print('Aún no hay datos (data/agenda.json no existe). No se envía nada.')\n        return 0\n\n    cambios_24h = git('log', '--since=24 hours ago', '--format=%H', '--', DATA).splitlines()\n    cambios_7d = git('log', '--since=7 days ago', '--format=%H', '--', DATA).splitlines()\n    if event == 'schedule' and schedule == DAILY_CRON and not cambios_24h:\n        print('Sin cambios en las últimas 24 horas: no se envía el respaldo diario.')\n        return 0\n\n    user, password = os.environ.get('SMTP_USER', '').strip(), os.environ.get('SMTP_PASS', '').strip()\n    if not user or not password:\n        print('ERROR: faltan los secretos SMTP_USER y SMTP_PASS en Settings → Secrets and variables → Actions.')\n        return 1\n    host = os.environ.get('SMTP_HOST', '').strip()\n    port = int(os.environ.get('SMTP_PORT', '').strip() or 0)\n    if host:\n        servidores = [(host, port or 465)]\n    else:\n        proveedor, host_det, port_det, mx = detectar_smtp(user)\n        print(f'Correo de {user.split(\"@\")[-1]} alojado en: {proveedor} (servidor {host_det}:{port_det}).')\n        servidores = [(host_det, port or port_det)]\n        # Alternativas por si el primero rechaza la conexión (correo de GoDaddy y Titan)\n        if not user.lower().endswith(('@gmail.com', '@googlemail.com')):\n            for alt in [('smtpout.secureserver.net', 465), ('smtp.titan.email', 465)]:\n                if alt not in servidores:\n                    servidores.append(alt)\n    to = [x.strip() for x in (os.environ.get('MAIL_TO', '').strip() or 'contacto@impulsoacademico.mx').split(',') if x.strip()]\n\n    with open(DATA, encoding='utf-8') as f:\n        data = json.load(f)\n    students = data.get('students', {})\n    bookings = data.get('bookings', {})\n    waitlist = data.get('waitlist', {})\n    config = (data.get('config') or {}).get('main', {})\n    plans = config.get('plans', {'basico': {'name': 'Básico'}, 'plus': {'name': 'Plus'}})\n\n    # Respaldo importable (mismo formato que \"Descargar respaldo\" en la agenda; sin la contraseña)\n    respaldo = {'exportedAt': now.isoformat(), 'source': 'github-actions', 'config': config,\n                'students': students, 'bookings': bookings, 'waitlist': waitlist}\n    respaldo_bytes = json.dumps(respaldo, ensure_ascii=False, indent=1).encode('utf-8')\n\n    def nombre(sid):\n        s = students.get(sid) or {}\n        tel = ''.join(c for c in str(s.get('phone', '')) if c.isdigit())\n        return f\"{s.get('name', '(sin nombre)')} {tel[-4:]}\".strip()\n\n    def plan_nombre(p):\n        return (plans.get(p) or {}).get('name', 'Sin plan')\n\n    # CSV de alumnos\n    buf = io.StringIO()\n    w = csv.writer(buf)\n    w.writerow(['Alumno', 'Tutor', 'WhatsApp', 'Plan', 'Alumno desde', 'Activo', 'Notas'])\n    for sid, s in sorted(students.items(), key=lambda x: x[1].get('name', '').lower()):\n        w.writerow([s.get('name', ''), s.get('tutor', ''), s.get('phone', ''), plan_nombre(s.get('plan')),\n                    s.get('since', ''), 'Sí' if s.get('active', True) else 'No', s.get('notes', '')])\n    alumnos_csv = ('﻿' + buf.getvalue()).encode('utf-8')  # BOM para que Excel lea acentos\n\n    # CSV de reservas\n    estados = {'pre': 'Prereserva', 'conf': 'Pagado', 'cancel': 'Cancelada', 'desplazada': 'Desplazada'}\n    tipos = {'impulso': 'Impulso', 'tutoria': 'Tutoría', 'repo': 'Reposición'}\n    buf = io.StringIO()\n    w = csv.writer(buf)\n    w.writerow(['Tipo', 'Alumno', 'Plan', 'Estado', 'Inicio / fecha', 'Fin', 'Horario', 'Pago verificado', 'Monto', 'Notas'])\n    for b in sorted(bookings.values(), key=lambda b: b.get('start') or b.get('date') or ''):\n        es_imp = b.get('type') == 'impulso'\n        w.writerow([tipos.get(b.get('type'), b.get('type')), nombre(b.get('studentId')),\n                    plan_nombre(b.get('plan')) if es_imp else '', estados.get(b.get('status'), b.get('status')),\n                    b.get('start') if es_imp else b.get('date'), b.get('end', '') if es_imp else '',\n                    horario(b.get('slots')) if es_imp else hora(b.get('hour', 0)),\n                    (b.get('paidAt') or '')[:10], b.get('amount', ''), b.get('notes', '')])\n    reservas_csv = ('﻿' + buf.getvalue()).encode('utf-8')\n\n    # Resumen en el cuerpo del correo\n    vigentes = [dict(b, id=k) for k, b in bookings.items() if b.get('type') == 'impulso' and b.get('status') == 'conf'\n                and b.get('start', '') <= hoy <= b.get('end', '')]\n    pre = [b for b in bookings.values() if b.get('status') == 'pre']\n    en7 = (now + timedelta(days=7)).strftime('%Y-%m-%d')\n    terminan = sorted([b for b in vigentes if b.get('end', '') <= en7], key=lambda b: b['end'])\n    renovados = {b.get('renewalOf') for b in bookings.values() if b.get('renewalOf') and b.get('status') != 'cancel'}\n    espera = [x for x in waitlist.values() if x.get('status') == 'activa']\n\n    tipo_txt = {'schedule': 'semanal' if schedule != DAILY_CRON else 'diario (hubo cambios hoy)',\n                'workflow_dispatch': f'manual{\": \" + motivo if motivo and motivo != \"manual\" else \"\"}'}.get(event, event)\n    L = [f'Respaldo {tipo_txt} de la Agenda Impulso Académico',\n         f'Generado: {now.strftime(\"%d/%m/%Y %H:%M\")} (hora de la Ciudad de México)', '',\n         f'Alumnos registrados: {len(students)}',\n         f'Alumnos con plan pagado vigente: {len({b.get(\"studentId\") for b in vigentes})}',\n         f'Prereservas esperando pago: {len(pre)}',\n         f'En lista de espera: {len(espera)}',\n         f'Cambios guardados en las últimas 24 h: {len(cambios_24h)} · últimos 7 días: {len(cambios_7d)}', '']\n    if pre:\n        L.append('PRERESERVAS ESPERANDO PAGO')\n        for b in pre:\n            cuando = f\"Impulso {horario(b.get('slots'))} desde {fecha(b.get('start'))}\" if b.get('type') == 'impulso' \\\n                else f\"Tutoría {fecha(b.get('date'))} {hora(b.get('hour', 0))}\"\n            L.append(f'  • {nombre(b.get(\"studentId\"))}: {cuando}')\n        L.append('')\n    if terminan:\n        L.append('PLANES QUE TERMINAN EN LOS PRÓXIMOS 7 DÍAS')\n        for b in terminan:\n            L.append(f'  • {nombre(b.get(\"studentId\"))}: termina {fecha(b[\"end\"])} · '\n                     f'{\"renovación registrada\" if b.get(\"id\") in renovados else \"sin renovación\"}')\n        L.append('')\n    L += ['ARCHIVOS ADJUNTOS',\n          f'  • respaldo-impulso-{hoy}.json: para restaurar en la agenda (Ajustes → Importar respaldo).',\n          f'  • alumnos-{hoy}.csv y reservas-{hoy}.csv: para consultar en Excel.', '',\n          f'Historial completo de cambios: https://github.com/{os.environ.get(\"REPO\", \"\")}/commits/main/data/agenda.json']\n\n    msg = EmailMessage()\n    msg['Subject'] = f'Respaldo Agenda Impulso Académico · {now.strftime(\"%d/%m/%Y\")}'\n    msg['From'] = user\n    msg['To'] = ', '.join(to)\n    msg.set_content('\\n'.join(L))\n    msg.add_attachment(respaldo_bytes, maintype='application', subtype='json', filename=f'respaldo-impulso-{hoy}.json')\n    msg.add_attachment(alumnos_csv, maintype='text', subtype='csv', filename=f'alumnos-{hoy}.csv')\n    msg.add_attachment(reservas_csv, maintype='text', subtype='csv', filename=f'reservas-{hoy}.csv')\n\n    ctx = ssl.create_default_context()\n    fallos = []\n    for host, port in servidores:\n        try:\n            if port == 465:\n                with smtplib.SMTP_SSL(host, port, context=ctx, timeout=60) as s:\n                    s.login(user, password)\n                    s.send_message(msg)\n            else:\n                with smtplib.SMTP(host, port, timeout=60) as s:\n                    if os.environ.get('SMTP_NO_TLS') != '1':\n                        s.starttls(context=ctx)\n                    if os.environ.get('SMTP_NO_LOGIN') != '1':\n                        s.login(user, password)\n                    s.send_message(msg)\n        except smtplib.SMTPAuthenticationError:\n            fallos.append(f'{host}: rechazó el usuario o la contraseña')\n            continue\n        except Exception as e:  # noqa: BLE001\n            fallos.append(f'{host}: {e}')\n            continue\n        print(f'::notice title=Respaldo enviado::A {\", \".join(to)} desde {user} por {host}:{port}')\n        return 0\n    detalle = ' · '.join(fallos)\n    print(f'::error title=No se pudo enviar el respaldo::{detalle}. Revisa SMTP_USER y SMTP_PASS (correo completo y su contraseña; con Gmail, contraseña de aplicación).')\n    return 1\n\n\nif __name__ == '__main__':\n    sys.exit(main())\n", "README.md": "# Datos de la Agenda Impulso Académico\n\nRepositorio **privado**. No lo hagas público: contiene nombres de alumnos y teléfonos de sus familias.\n\n- `data/agenda.json`: toda la información de la agenda. La agenda (https://makidav.github.io/impulso/) lo actualiza sola; no hace falta editarlo a mano.\n- Cada cambio guardado en la agenda es un commit. Para ver o recuperar una versión anterior: pestaña **Commits** → elige la fecha → abre `data/agenda.json`.\n- `.github/workflows/respaldo-correo.yml` y `.github/scripts/enviar_respaldo.py`: envían el respaldo por correo los lunes a las 7:00 am y a las 9:00 pm de los días con cambios.\n\n## Datos del correo (Settings → Secrets and variables → Actions)\n\n| Secreto | Valor |\n|---|---|\n| `SMTP_USER` | `contacto@impulsoacademico.mx` (cuenta que envía) |\n| `SMTP_PASS` | Contraseña del buzón de contacto@ (si cambia la del correo, actualízala aquí) |\n| `MAIL_TO` | Opcional. Por defecto `contacto@impulsoacademico.mx` (varios separados por coma) |\n| `SMTP_HOST` / `SMTP_PORT` | No hacen falta: se detecta el servidor de GoDaddy (`smtpout.secureserver.net:465`) y, si falla, se intenta Titan |\n\n## Restaurar\nAbre el `.json` adjunto en cualquier correo de respaldo desde la agenda: **Ajustes → Importar respaldo**.\n"};
+const GH_FILES = {".github/workflows/respaldo-correo.yml": "# Respaldo por correo de la Agenda Impulso Académico.\n# - Lunes 7:00 am (hora de la Ciudad de México): respaldo semanal, siempre.\n# - Todos los días 9:00 pm: respaldo solo si ese día hubo cambios en la agenda.\n# - Manual: desde la agenda (Ajustes → Enviar respaldo ahora) o desde la pestaña Actions.\n# Ciudad de México está en UTC-6 todo el año (sin horario de verano desde 2022).\nname: Respaldo por correo\n\non:\n  schedule:\n    - cron: '0 13 * * 1'\n    - cron: '0 3 * * *'\n  workflow_dispatch:\n    inputs:\n      motivo:\n        description: 'Motivo del respaldo'\n        required: false\n        default: 'manual'\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: respaldo-correo\n  cancel-in-progress: false\n\njobs:\n  respaldo:\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n    steps:\n      - name: Descargar datos e historial\n        uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n\n      - name: Enviar respaldo\n        env:\n          SMTP_HOST: ${{ secrets.SMTP_HOST }}\n          SMTP_PORT: ${{ secrets.SMTP_PORT }}\n          SMTP_USER: ${{ secrets.SMTP_USER }}\n          SMTP_PASS: ${{ secrets.SMTP_PASS }}\n          MAIL_TO: ${{ secrets.MAIL_TO }}\n          EVENT_NAME: ${{ github.event_name }}\n          SCHEDULE: ${{ github.event.schedule }}\n          MOTIVO: ${{ github.event.inputs.motivo }}\n          REPO: ${{ github.repository }}\n        run: python3 .github/scripts/enviar_respaldo.py\n", ".github/scripts/enviar_respaldo.py": "#!/usr/bin/env python3\n\"\"\"Envía por correo el respaldo de la Agenda Impulso Académico.\n\nAdjunta:\n  - respaldo-impulso-AAAA-MM-DD.json  (se importa en la agenda: Ajustes → Importar respaldo)\n  - alumnos-AAAA-MM-DD.csv y reservas-AAAA-MM-DD.csv (se abren en Excel)\n  - facturas-AAAA-MM-DD.csv si ya hay facturas registradas (se abre en Excel)\n\nVariables de entorno (secretos del repositorio):\n  SMTP_USER, SMTP_PASS  obligatorias\n  SMTP_HOST             opcional (por defecto smtp.gmail.com)\n  SMTP_PORT             opcional (por defecto 465; 587 usa STARTTLS)\n  MAIL_TO               opcional (por defecto contacto@impulsoacademico.mx; varios separados por coma)\n\"\"\"\nimport csv, io, json, os, smtplib, ssl, subprocess, sys\nfrom datetime import datetime, timedelta\nfrom email.message import EmailMessage\nfrom zoneinfo import ZoneInfo\n\nDATA = 'data/agenda.json'\nTZ = ZoneInfo('America/Mexico_City')\nDAILY_CRON = '0 3 * * *'\nDOWS = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom']  # weekday() 0 = lunes\nJS_DOWS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']  # como en la agenda: 0 = domingo\nMES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']\n\n\ndef git(*args):\n    return subprocess.run(['git', *args], capture_output=True, text=True, check=False).stdout.strip()\n\n\ndef fecha(s):\n    if not s:\n        return ''\n    d = datetime.strptime(s[:10], '%Y-%m-%d')\n    return f'{DOWS[d.weekday()]} {d.day} {MES[d.month - 1]}'\n\n\ndef hora(h):\n    h = int(h)\n    return f'{h - 12 if h > 12 else h}{\"pm\" if h >= 12 else \"am\"}'\n\n\ndef horario(slots):\n    by = {}\n    for k in sorted(slots or [], key=lambda k: tuple(map(int, k.split('-')))):\n        d, h = map(int, k.split('-'))\n        by.setdefault(d, []).append(h)\n    parts = []\n    for d, hs in by.items():\n        hs.sort()\n        rangos, ini, prev = [], hs[0], hs[0]\n        for h in hs[1:] + [None]:\n            if h is not None and h == prev + 1:\n                prev = h\n                continue\n            rangos.append(f'{hora(ini)}–{hora(prev + 1)}')\n            if h is not None:\n                ini = prev = h\n        parts.append(f'{JS_DOWS[d]} {\" y \".join(rangos)}')\n    return ', '.join(parts)\n\n\ndef main():\n    now = datetime.now(TZ)\n    hoy = now.strftime('%Y-%m-%d')\n    event = os.environ.get('EVENT_NAME', 'manual')\n    schedule = os.environ.get('SCHEDULE', '')\n    motivo = (os.environ.get('MOTIVO') or '').strip()\n\n    if not os.path.exists(DATA):\n        print('Aún no hay datos (data/agenda.json no existe). No se envía nada.')\n        return 0\n\n    cambios_24h = git('log', '--since=24 hours ago', '--format=%H', '--', DATA).splitlines()\n    cambios_7d = git('log', '--since=7 days ago', '--format=%H', '--', DATA).splitlines()\n    if event == 'schedule' and schedule == DAILY_CRON and not cambios_24h:\n        print('Sin cambios en las últimas 24 horas: no se envía el respaldo diario.')\n        return 0\n\n    user, password = os.environ.get('SMTP_USER', '').strip(), os.environ.get('SMTP_PASS', '').strip()\n    if not user or not password:\n        print('ERROR: faltan los secretos SMTP_USER y SMTP_PASS en Settings → Secrets and variables → Actions.')\n        return 1\n    host = os.environ.get('SMTP_HOST', '').strip() or 'smtp.gmail.com'\n    port = int(os.environ.get('SMTP_PORT', '').strip() or 465)\n    to = [x.strip() for x in (os.environ.get('MAIL_TO', '').strip() or 'contacto@impulsoacademico.mx').split(',') if x.strip()]\n\n    with open(DATA, encoding='utf-8') as f:\n        data = json.load(f)\n    students = data.get('students', {})\n    bookings = data.get('bookings', {})\n    waitlist = data.get('waitlist', {})\n    config = (data.get('config') or {}).get('main', {})\n    plans = config.get('plans', {'basico': {'name': 'Básico'}, 'plus': {'name': 'Plus'}})\n    # Facturación (se agregó después; si no existe, quedan vacíos)\n    fiscal = data.get('fiscal', {})\n    invoices = data.get('invoices', {})\n    cobros = data.get('cobros', {})\n    fiscal_cfg = (data.get('config') or {}).get('fiscal')\n\n    # Respaldo importable (mismo formato que \"Descargar respaldo\" en la agenda; sin la contraseña)\n    respaldo = {'exportedAt': now.isoformat(), 'source': 'github-actions', 'config': config,\n                'students': students, 'bookings': bookings, 'waitlist': waitlist,\n                'fiscal': fiscal, 'invoices': invoices, 'cobros': cobros}\n    if fiscal_cfg:\n        respaldo['fiscalConfig'] = fiscal_cfg\n    respaldo_bytes = json.dumps(respaldo, ensure_ascii=False, indent=1).encode('utf-8')\n\n    def nombre(sid):\n        s = students.get(sid) or {}\n        tel = ''.join(c for c in str(s.get('phone', '')) if c.isdigit())\n        return f\"{s.get('name', '(sin nombre)')} {tel[-4:]}\".strip()\n\n    def plan_nombre(p):\n        return (plans.get(p) or {}).get('name', 'Sin plan')\n\n    # CSV de alumnos\n    buf = io.StringIO()\n    w = csv.writer(buf)\n    w.writerow(['Alumno', 'Tutor', 'WhatsApp', 'Plan', 'Alumno desde', 'Activo', 'Notas'])\n    for sid, s in sorted(students.items(), key=lambda x: x[1].get('name', '').lower()):\n        w.writerow([s.get('name', ''), s.get('tutor', ''), s.get('phone', ''), plan_nombre(s.get('plan')),\n                    s.get('since', ''), 'Sí' if s.get('active', True) else 'No', s.get('notes', '')])\n    alumnos_csv = ('﻿' + buf.getvalue()).encode('utf-8')  # BOM para que Excel lea acentos\n\n    # CSV de reservas\n    estados = {'pre': 'Prereserva', 'conf': 'Pagado', 'cancel': 'Cancelada', 'desplazada': 'Desplazada'}\n    tipos = {'impulso': 'Impulso', 'tutoria': 'Tutoría', 'repo': 'Reposición'}\n    buf = io.StringIO()\n    w = csv.writer(buf)\n    w.writerow(['Tipo', 'Alumno', 'Plan', 'Estado', 'Inicio / fecha', 'Fin', 'Horario', 'Pago verificado', 'Monto', 'Notas'])\n    for b in sorted(bookings.values(), key=lambda b: b.get('start') or b.get('date') or ''):\n        es_imp = b.get('type') == 'impulso'\n        w.writerow([tipos.get(b.get('type'), b.get('type')), nombre(b.get('studentId')),\n                    plan_nombre(b.get('plan')) if es_imp else '', estados.get(b.get('status'), b.get('status')),\n                    b.get('start') if es_imp else b.get('date'), b.get('end', '') if es_imp else '',\n                    horario(b.get('slots')) if es_imp else hora(b.get('hour', 0)),\n                    (b.get('paidAt') or '')[:10], b.get('amount', ''), b.get('notes', '')])\n    reservas_csv = ('﻿' + buf.getvalue()).encode('utf-8')\n\n    # CSV de facturas (montos guardados en centavos)\n    facturas_csv = None\n    if invoices:\n        buf = io.StringIO()\n        w = csv.writer(buf)\n        w.writerow(['Fecha', 'Serie', 'Folio', 'UUID', 'Tipo', 'Mes global', 'Receptor', 'RFC receptor',\n                    'Subtotal', 'IVA', 'Total', 'Forma de pago', 'Estado', 'Motivo cancelación', 'Envíos'])\n        for inv in sorted(invoices.values(), key=lambda i: i.get('fecha') or ''):\n            rec = inv.get('receptor') or {}\n            w.writerow([(inv.get('fecha') or '')[:10], inv.get('serie', ''), inv.get('folio', ''), inv.get('uuid', ''),\n                        'Global' if inv.get('kind') == 'global' else 'Individual', inv.get('ym', '') if inv.get('kind') == 'global' else '',\n                        rec.get('nombre', ''), rec.get('rfc', ''),\n                        f\"{(inv.get('subtotal') or 0) / 100:.2f}\", f\"{(inv.get('iva') or 0) / 100:.2f}\", f\"{(inv.get('total') or 0) / 100:.2f}\",\n                        inv.get('forma', ''), 'Cancelada' if inv.get('status') == 'cancelada' else 'Vigente',\n                        (inv.get('cancel') or {}).get('motivo', ''), len(inv.get('envios') or [])])\n        facturas_csv = ('﻿' + buf.getvalue()).encode('utf-8')\n\n    # Resumen en el cuerpo del correo\n    vigentes = [dict(b, id=k) for k, b in bookings.items() if b.get('type') == 'impulso' and b.get('status') == 'conf'\n                and b.get('start', '') <= hoy <= b.get('end', '')]\n    pre = [b for b in bookings.values() if b.get('status') == 'pre']\n    en7 = (now + timedelta(days=7)).strftime('%Y-%m-%d')\n    terminan = sorted([b for b in vigentes if b.get('end', '') <= en7], key=lambda b: b['end'])\n    renovados = {b.get('renewalOf') for b in bookings.values() if b.get('renewalOf') and b.get('status') != 'cancel'}\n    espera = [x for x in waitlist.values() if x.get('status') == 'activa']\n\n    tipo_txt = {'schedule': 'semanal' if schedule != DAILY_CRON else 'diario (hubo cambios hoy)',\n                'workflow_dispatch': f'manual{\": \" + motivo if motivo and motivo != \"manual\" else \"\"}'}.get(event, event)\n    L = [f'Respaldo {tipo_txt} de la Agenda Impulso Académico',\n         f'Generado: {now.strftime(\"%d/%m/%Y %H:%M\")} (hora de la Ciudad de México)', '',\n         f'Alumnos registrados: {len(students)}',\n         f'Alumnos con plan pagado vigente: {len({b.get(\"studentId\") for b in vigentes})}',\n         f'Prereservas esperando pago: {len(pre)}',\n         f'En lista de espera: {len(espera)}',\n         f'Facturas registradas: {len(invoices)} · datos fiscales de {len(fiscal)} cliente(s)',\n         f'Cambios guardados en las últimas 24 h: {len(cambios_24h)} · últimos 7 días: {len(cambios_7d)}', '']\n    if pre:\n        L.append('PRERESERVAS ESPERANDO PAGO')\n        for b in pre:\n            cuando = f\"Impulso {horario(b.get('slots'))} desde {fecha(b.get('start'))}\" if b.get('type') == 'impulso' \\\n                else f\"Tutoría {fecha(b.get('date'))} {hora(b.get('hour', 0))}\"\n            L.append(f'  • {nombre(b.get(\"studentId\"))}: {cuando}')\n        L.append('')\n    if terminan:\n        L.append('PLANES QUE TERMINAN EN LOS PRÓXIMOS 7 DÍAS')\n        for b in terminan:\n            L.append(f'  • {nombre(b.get(\"studentId\"))}: termina {fecha(b[\"end\"])} · '\n                     f'{\"renovación registrada\" if b.get(\"id\") in renovados else \"sin renovación\"}')\n        L.append('')\n    L += ['ARCHIVOS ADJUNTOS',\n          f'  • respaldo-impulso-{hoy}.json: para restaurar en la agenda (Ajustes → Importar respaldo).',\n          f'  • alumnos-{hoy}.csv y reservas-{hoy}.csv: para consultar en Excel.'] + \\\n         ([f'  • facturas-{hoy}.csv: lista de facturas (los PDF y XML están en la carpeta facturas/ del repositorio).'] if facturas_csv else []) + ['',\n          f'Historial completo de cambios: https://github.com/{os.environ.get(\"REPO\", \"\")}/commits/main/data/agenda.json']\n\n    msg = EmailMessage()\n    msg['Subject'] = f'Respaldo Agenda Impulso Académico · {now.strftime(\"%d/%m/%Y\")}'\n    msg['From'] = user\n    msg['To'] = ', '.join(to)\n    msg.set_content('\\n'.join(L))\n    msg.add_attachment(respaldo_bytes, maintype='application', subtype='json', filename=f'respaldo-impulso-{hoy}.json')\n    msg.add_attachment(alumnos_csv, maintype='text', subtype='csv', filename=f'alumnos-{hoy}.csv')\n    msg.add_attachment(reservas_csv, maintype='text', subtype='csv', filename=f'reservas-{hoy}.csv')\n    if facturas_csv:\n        msg.add_attachment(facturas_csv, maintype='text', subtype='csv', filename=f'facturas-{hoy}.csv')\n\n    ctx = ssl.create_default_context()\n    try:\n        if port == 465:\n            with smtplib.SMTP_SSL(host, port, context=ctx, timeout=60) as s:\n                s.login(user, password)\n                s.send_message(msg)\n        else:\n            with smtplib.SMTP(host, port, timeout=60) as s:\n                if os.environ.get('SMTP_NO_TLS') != '1':\n                    s.starttls(context=ctx)\n                if os.environ.get('SMTP_NO_LOGIN') != '1':\n                    s.login(user, password)\n                s.send_message(msg)\n    except smtplib.SMTPAuthenticationError:\n        print('ERROR: el servidor de correo rechazó el usuario o la contraseña. Con Gmail usa una \"contraseña de aplicación\", no la contraseña normal.')\n        return 1\n    except Exception as e:  # noqa: BLE001\n        print(f'ERROR al enviar el correo: {e}')\n        return 1\n    print(f'Respaldo enviado a {\", \".join(to)}.')\n    return 0\n\n\nif __name__ == '__main__':\n    sys.exit(main())\n", "README.md": "# Datos de la Agenda Impulso Académico\n\nRepositorio **privado**. No lo hagas público: contiene nombres de alumnos, teléfonos de sus familias y, desde que se agregó la facturación, RFC y datos fiscales.\n\n- `data/agenda.json`: toda la información de la agenda. La agenda (https://makidav.github.io/impulso/) lo actualiza sola; no hace falta editarlo a mano.\n- `facturas/<RFC del emisor>/<año>/<mes>/<folio fiscal>.xml` y `.pdf`: los archivos de cada factura registrada en la agenda (Facturación → Registrar factura).\n- Cada cambio guardado en la agenda es un commit. Para ver o recuperar una versión anterior: pestaña **Commits** → elige la fecha → abre `data/agenda.json`.\n- `.github/workflows/respaldo-correo.yml` y `.github/scripts/enviar_respaldo.py`: envían el respaldo por correo los lunes a las 7:00 am y a las 9:00 pm de los días con cambios. El respaldo incluye los datos de facturación y, si hay facturas, una lista en Excel.\n- `.github/workflows/enviar-factura.yml` y `.github/scripts/enviar_factura.py`: envían una factura (PDF y XML adjuntos) cuando lo pides desde la agenda.\n\n## Datos del correo (Settings → Secrets and variables → Actions)\n\n| Secreto | Valor |\n|---|---|\n| `SMTP_USER` | Cuenta que envía. Para que las facturas salgan de `contacto@impulsoacademico.mx`, pon esa cuenta |\n| `SMTP_PASS` | Contraseña de esa cuenta (con Gmail, una \"contraseña de aplicación\") |\n| `SMTP_HOST` / `SMTP_PORT` | Servidor de correo saliente y puerto que indica tu hosting (465 = SSL, 587 = STARTTLS). Por defecto `smtp.gmail.com` y `465` |\n| `MAIL_TO` | Opcional. A quién llega el respaldo. Por defecto `contacto@impulsoacademico.mx` (varios separados por coma) |\n| `FACT_BCC` | Opcional. Copia oculta de cada factura enviada (por ejemplo, `contacto@impulsoacademico.mx` para archivo) |\n| `FACT_FROM_NAME` | Opcional. Nombre del remitente de las facturas. Por defecto `Impulso Académico` |\n| `FACT_SMTP_HOST`, `FACT_SMTP_PORT`, `FACT_SMTP_USER`, `FACT_SMTP_PASS` | Opcionales. Solo si las facturas deben salir de una cuenta distinta a la del respaldo |\n\n## Restaurar\nAbre el `.json` adjunto en cualquier correo de respaldo desde la agenda: **Ajustes → Importar respaldo**. Los PDF y XML de las facturas no van en el respaldo por correo: viven en la carpeta `facturas/` de este repositorio.\n", ".github/workflows/enviar-factura.yml": "# Envío de una factura por correo (PDF y XML adjuntos).\n# Lo dispara la agenda: Facturación → factura → \"Enviar por correo\".\n# Usa los mismos secretos de correo que el respaldo (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS);\n# FACT_SMTP_* los reemplaza solo para facturas, y FACT_BCC manda una copia oculta.\nname: Enviar factura\n\non:\n  workflow_dispatch:\n    inputs:\n      para:\n        description: 'Correo del destinatario'\n        required: true\n      xml:\n        description: 'Ruta del XML en el repositorio'\n        required: true\n      pdf:\n        description: 'Ruta del PDF en el repositorio (opcional)'\n        required: false\n        default: ''\n      asunto:\n        description: 'Asunto del correo'\n        required: true\n      mensaje:\n        description: 'Texto del correo'\n        required: true\n\npermissions:\n  contents: read\n\njobs:\n  enviar:\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n    steps:\n      - name: Descargar archivos\n        uses: actions/checkout@v4\n        with:\n          fetch-depth: 1\n\n      - name: Enviar factura\n        env:\n          SMTP_HOST: ${{ secrets.FACT_SMTP_HOST || secrets.SMTP_HOST }}\n          SMTP_PORT: ${{ secrets.FACT_SMTP_PORT || secrets.SMTP_PORT }}\n          SMTP_USER: ${{ secrets.FACT_SMTP_USER || secrets.SMTP_USER }}\n          SMTP_PASS: ${{ secrets.FACT_SMTP_PASS || secrets.SMTP_PASS }}\n          FACT_BCC: ${{ secrets.FACT_BCC }}\n          FACT_FROM_NAME: ${{ secrets.FACT_FROM_NAME }}\n          PARA: ${{ github.event.inputs.para }}\n          XML_PATH: ${{ github.event.inputs.xml }}\n          PDF_PATH: ${{ github.event.inputs.pdf }}\n          ASUNTO: ${{ github.event.inputs.asunto }}\n          MENSAJE: ${{ github.event.inputs.mensaje }}\n        run: python3 .github/scripts/enviar_factura.py\n", ".github/scripts/enviar_factura.py": "#!/usr/bin/env python3\n\"\"\"Envía por correo una factura (XML y PDF) guardada en el repositorio de datos.\n\nVariables de entorno:\n  PARA, XML_PATH, ASUNTO, MENSAJE   obligatorias (las manda la agenda)\n  PDF_PATH                          opcional\n  SMTP_USER, SMTP_PASS              obligatorias (secretos)\n  SMTP_HOST                         opcional (por defecto smtp.gmail.com)\n  SMTP_PORT                         opcional (por defecto 465; 587 usa STARTTLS)\n  FACT_BCC                          opcional: copia oculta (varios separados por coma)\n  FACT_FROM_NAME                    opcional: nombre del remitente (por defecto \"Impulso Académico\")\n\"\"\"\nimport os, re, smtplib, ssl, sys\nfrom email.message import EmailMessage\nfrom email.utils import formataddr\n\nEMAIL = re.compile(r'^[^\\s@,;<>]+@[^\\s@,;<>]+\\.[^\\s@,;<>]+$')\n\n\ndef ruta_segura(p):\n    \"\"\"Solo archivos dentro de facturas/, sin salir de la carpeta.\"\"\"\n    p = (p or '').strip()\n    if not p:\n        return ''\n    norm = os.path.normpath(p)\n    if not norm.startswith('facturas' + os.sep) or norm.startswith('..') or os.path.isabs(norm):\n        raise ValueError(f'Ruta no permitida: {p}')\n    if not os.path.isfile(norm):\n        raise FileNotFoundError(f'No existe en el repositorio: {p}')\n    return norm\n\n\ndef main():\n    para = (os.environ.get('PARA') or '').strip()\n    asunto = (os.environ.get('ASUNTO') or '').replace('\\r', ' ').replace('\\n', ' ').strip()[:200]\n    mensaje = os.environ.get('MENSAJE') or ''\n    if not EMAIL.match(para):\n        print(f'ERROR: correo de destino no válido: {para!r}')\n        return 1\n    if not asunto or not mensaje.strip():\n        print('ERROR: faltan el asunto o el mensaje.')\n        return 1\n    try:\n        xml = ruta_segura(os.environ.get('XML_PATH'))\n        pdf = ruta_segura(os.environ.get('PDF_PATH'))\n    except (ValueError, FileNotFoundError) as e:\n        print(f'ERROR: {e}')\n        return 1\n    if not xml:\n        print('ERROR: falta la ruta del XML.')\n        return 1\n\n    user, password = os.environ.get('SMTP_USER', '').strip(), os.environ.get('SMTP_PASS', '').strip()\n    if not user or not password:\n        print('ERROR: faltan los secretos SMTP_USER y SMTP_PASS en Settings → Secrets and variables → Actions.')\n        return 1\n    host = os.environ.get('SMTP_HOST', '').strip() or 'smtp.gmail.com'\n    port = int(os.environ.get('SMTP_PORT', '').strip() or 465)\n    nombre = os.environ.get('FACT_FROM_NAME', '').strip() or 'Impulso Académico'\n    bcc = [x.strip() for x in os.environ.get('FACT_BCC', '').split(',') if EMAIL.match(x.strip())]\n\n    msg = EmailMessage()\n    msg['Subject'] = asunto\n    msg['From'] = formataddr((nombre, user))\n    msg['To'] = para\n    msg['Reply-To'] = user\n    msg.set_content(mensaje)\n    for ruta, maintype, subtype in ((pdf, 'application', 'pdf'), (xml, 'application', 'xml')):\n        if ruta:\n            with open(ruta, 'rb') as f:\n                msg.add_attachment(f.read(), maintype=maintype, subtype=subtype, filename=os.path.basename(ruta))\n\n    ctx = ssl.create_default_context()\n    destinatarios = [para] + bcc\n    try:\n        if port == 465:\n            with smtplib.SMTP_SSL(host, port, context=ctx, timeout=60) as s:\n                s.login(user, password)\n                s.send_message(msg, to_addrs=destinatarios)\n        else:\n            with smtplib.SMTP(host, port, timeout=60) as s:\n                if os.environ.get('SMTP_NO_TLS') != '1':\n                    s.starttls(context=ctx)\n                if os.environ.get('SMTP_NO_LOGIN') != '1':\n                    s.login(user, password)\n                s.send_message(msg, to_addrs=destinatarios)\n    except smtplib.SMTPAuthenticationError:\n        print('ERROR: el servidor de correo rechazó el usuario o la contraseña. Revisa SMTP_USER y SMTP_PASS (con Gmail usa una \"contraseña de aplicación\").')\n        return 1\n    except Exception as e:  # noqa: BLE001\n        print(f'ERROR al enviar el correo: {e}')\n        return 1\n    print(f'Factura enviada a {para}' + (f' (copia oculta a {len(bcc)})' if bcc else '') + '.')\n    return 0\n\n\nif __name__ == '__main__':\n    sys.exit(main())\n"};
 const GH_PATH = 'data/agenda.json';
 const GH_CFG_KEY = 'ia-gh-config';
-const COLS = ['students','bookings','waitlist','config'];
+const COLS = ['students','bookings','waitlist','config','fiscal','invoices','cobros'];
 const clone = o => JSON.parse(JSON.stringify(o ?? {}));
 function b64enc(str){ const by = new TextEncoder().encode(str); let bin = ''; for (let i=0;i<by.length;i+=0x8000) bin += String.fromCharCode.apply(null, by.subarray(i, i+0x8000)); return btoa(bin); }
 function b64dec(b64){ const bin = atob(String(b64).replace(/\s/g,'')); const by = new Uint8Array(bin.length); for (let i=0;i<bin.length;i++) by[i] = bin.charCodeAt(i); return new TextDecoder().decode(by); }
@@ -966,7 +980,7 @@ function githubDB(gc){
     return true;
   }
   function commitMsg(ops){
-    const n = ops.length, cols = [...new Set(ops.map(o => ({students:'alumnos',bookings:'reservas',waitlist:'lista de espera',config:'ajustes'}[o.col] || o.col)))];
+    const n = ops.length, cols = [...new Set(ops.map(o => ({students:'alumnos',bookings:'reservas',waitlist:'lista de espera',config:'ajustes',fiscal:'datos fiscales',invoices:'facturas',cobros:'cobros'}[o.col] || o.col)))];
     return `Agenda: ${n} cambio${n>1?'s':''} (${cols.join(', ')})`;
   }
   async function push(){
@@ -1142,7 +1156,7 @@ function renderSync(){
 /* =====================================================================
    SHELL
    ===================================================================== */
-const VIEWS =[['calendario','Calendario'],['alertas','Alertas'],['alumnos','Alumnos'],['espera','Lista de espera'],['reportes','Reportes'],['ajustes','Ajustes']];
+const VIEWS =[['calendario','Calendario'],['alertas','Alertas'],['alumnos','Alumnos'],['espera','Lista de espera'],['reportes','Reportes'],['facturas','Facturación'],['ajustes','Ajustes']];
 function renderShell(){
   loginRendered = false;
   $('#app').innerHTML = `<header class="top"><div class="wrap">
@@ -1156,8 +1170,8 @@ function renderShell(){
   renderMain();
 }
 function renderTabs(){
-  const n = pendingCount();
-  $('#tabs').innerHTML = VIEWS.map(([k,l]) => `<button class="tab" data-act="view" data-v="${k}" ${S.view===k?'aria-current="page"':''}>${l}${k==='alertas'&&n?`<span class="badge">${n}</span>`:''}</button>`).join('');
+  const n = pendingCount(), nf = factPendientes();
+  $('#tabs').innerHTML = VIEWS.map(([k,l]) => `<button class="tab" data-act="view" data-v="${k}" ${S.view===k?'aria-current="page"':''}>${l}${k==='alertas'&&n?`<span class="badge">${n}</span>`:''}${k==='facturas'&&nf?`<span class="badge">${nf}</span>`:''}</button>`).join('');
   const lastBk = lsGet('ia-last-backup');
   const needBk = S.local && (!lastBk || Date.now() - lastBk > 7*864e5);
   $('#banner').innerHTML = (S.auth && S.auth.initial
@@ -1172,7 +1186,7 @@ function renderMain(){
   renderTabs();
   const loading = !S.loaded.students || !S.loaded.bookings || !S.loaded.waitlist;
   if (loading){ $('#main').innerHTML = `<div class="empty">Cargando datos…</div>`; return; }
-  const fn = { calendario:viewCalendar, alertas:viewAlerts, alumnos:viewStudents, espera:viewWait, reportes:viewReports, ajustes:viewSettings }[S.view];
+  const fn = { calendario:viewCalendar, alertas:viewAlerts, alumnos:viewStudents, espera:viewWait, reportes:viewReports, facturas:viewFact, ajustes:viewSettings }[S.view];
   const keepScroll = window.scrollY;
   $('#main').innerHTML = fn();
   if (S.view==='reportes') bindReports();
@@ -1596,6 +1610,7 @@ function openBooking(id, fallback){
     rows.push(['Estado', statusChip(b) + (b.exception?' <span class="chip tent">Excepción</span>':'')]);
     if (b.status==='pre') rows.push(['Pago límite', `<b>${fmtDT(dl)}</b> <span class="small muted">(${dl.getTime()>now?'faltan '+relH(dl.getTime()-now):'venció hace '+relH(now-dl.getTime())})</span>`]);
     if (b.paidAt) rows.push(['Pago verificado', `${fmtDT(new Date(b.paidAt))}${b.amount?` · $${Number(b.amount).toLocaleString('es-MX')}`:''}`]);
+    if (b.paidAt) rows.push(['Factura', fxBookingStatus(b)]);
     if (b.renewalOf) rows.push(['Renovación de', `<button class="btn sm" data-act="booking" data-id="${b.renewalOf}">Ver periodo anterior</button>`]);
     const ren = b.type==='impulso' ? renewalOf(b) : null;
     if (ren) rows.push(['Renovación', `<button class="btn sm" data-act="booking" data-id="${ren.id}">${fmtD(ren.start)} al ${fmtD(ren.end)}</button> ${statusChip(ren)}`]);
@@ -1771,7 +1786,8 @@ function openStudent(id){
     `${id ? `${waBtn(s.phone, `Hola ${s.tutor||''}, le escribimos de Impulso Académico.`, 'WhatsApp', false)}
        <button class="btn" data-act="addwait" data-id="${id}">Agregar a lista de espera</button>
        <button class="btn sun" data-act="newimp" data-stu="${id}">Reserva Impulso</button>
-       <button class="btn rose" data-act="newtut" data-stu="${id}">Tutoría</button>` : ''}
+       <button class="btn rose" data-act="newtut" data-stu="${id}">Tutoría</button>
+       <button class="btn" data-act="fxcli" data-id="${defaultClientId(id)}" data-stu="${id}">Datos de facturación</button>` : ''}
      <button class="btn primary" id="st-save">Guardar</button>`, { wide:true });
   $('#m-body').addEventListener('change', e => { const k = e.target.dataset.pref; if (!k) return; const l = e.target.closest('.pk'); l.classList.toggle('on', e.target.checked); l.querySelector('span').textContent = e.target.checked ? 'Sí' : '·'; });
   $('#st-save').onclick = async () => {
@@ -2023,7 +2039,7 @@ function viewSettings(){
     </form>
     <div class="panel stack">
       <h3>Respaldo</h3>
-      <p class="small muted" style="margin:0">Descarga todos los alumnos, reservas, lista de espera y ajustes en un archivo. ${S.local ? '<b>En esta versión los datos viven solo en este navegador:</b> si se borran los datos de navegación o cambias de computadora, se recuperan con el respaldo.' : 'Guárdalo de vez en cuando.'}</p>
+      <p class="small muted" style="margin:0">Descarga todos los alumnos, reservas, lista de espera, ajustes y datos de facturación en un archivo (los PDF y XML de las facturas se quedan en GitHub). ${S.local ? '<b>En esta versión los datos viven solo en este navegador:</b> si se borran los datos de navegación o cambias de computadora, se recuperan con el respaldo.' : 'Guárdalo de vez en cuando.'}</p>
       <button class="btn" data-act="backup">Descargar respaldo (.json)</button>
       <div class="field"><label for="imp-file">Importar respaldo</label><input id="imp-file" type="file" accept=".json,application/json"></div>
       <p class="small muted" style="margin:0">Sirve para pasar los datos entre la versión de claude.ai y el archivo HTML, o de una computadora a otra.</p>
@@ -2110,7 +2126,7 @@ const ACT = {
       const gc = S.db.gc, tag = gc.owner + '/' + gc.repo;
       try { localStorage.removeItem(GH_CFG_KEY); localStorage.removeItem('ia-storage'); localStorage.removeItem('ia-gh-cache:'+tag); localStorage.removeItem('ia-gh-queue:'+tag); } catch(e){}
       ssSet('ia-sess', null); location.reload(); }); },
-  backup: async () => { if (await saveFile(`respaldo-impulso-${todayS()}.json`, JSON.stringify({ exportedAt:new Date().toISOString(), config:S.cfg, students:S.students, bookings:S.bookings, waitlist:S.waitlist }, null, 2))){ lsSet('ia-last-backup', Date.now()); renderTabs(); } }
+  backup: async () => { if (await saveFile(`respaldo-impulso-${todayS()}.json`, JSON.stringify({ exportedAt:new Date().toISOString(), config:S.cfg, students:S.students, bookings:S.bookings, waitlist:S.waitlist, fiscal:S.fiscal, invoices:S.invoices, cobros:S.cobros, fiscalConfig:S.fcfg }, null, 2))){ lsSet('ia-last-backup', Date.now()); renderTabs(); } }
 };
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
@@ -2138,6 +2154,1070 @@ document.addEventListener('keydown', e => { if (e.key==='Escape'){ if ($('#confi
 window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (S.logged && VIEWS.some(v=>v[0]===h) && h!==S.view){ S.view = h; renderMain(); } });
 /* refrescar alertas que dependen de la hora (vencimientos) cada 5 minutos */
 setInterval(() => { if (S.logged){ S.memo = {}; renderTabs(); if (S.view==='alertas' || S.view==='calendario') renderMain(); } }, 5*60e3);
+
+/* =====================================================================
+   FACTURACIÓN (módulo agregado)
+   - No timbra: la factura se hace a mano en el portal del SAT. Este módulo
+     prepara los datos exactos, revisa el XML que entrega el SAT, guarda el
+     XML y el PDF en el repositorio privado y los envía al tutor.
+   - Datos nuevos (no tocan los anteriores):
+       fiscal    datos de facturación de cada tutor (cliente)
+       cobros    datos fiscales de cada pago: forma de pago, si pidió factura,
+                 cliente y folio de nota; la llave es el id de la reserva.
+                 También guarda cobros que no vienen de la agenda (manual:true)
+       invoices  facturas emitidas (individuales y globales)
+       config/fiscal   datos del emisor y textos; config/factpin   PIN
+   ===================================================================== */
+const FACT_COLS = ['fiscal','invoices','cobros'];
+const DEFAULT_FCFG = {
+  emisor: { rfc:'', nombre:'', regimen:'626', cp:'' },
+  serie: 'IA',
+  claveProdServ: '',
+  claveUnidad: 'E48',
+  conceptoTpl: 'Servicio de regularización escolar {plan} de {alumno}, {periodo}',
+  tplCorreo: 'Hola {tutor}:\n\nTe enviamos la factura {folio} de Impulso Académico por {concepto}.\n\nTotal: {total}\nFolio fiscal (UUID): {uuid}\n\nAdjuntamos el PDF y el XML de la factura.\n\nGracias,\nImpulso Académico',
+  tplWa: 'Hola {tutor}, le compartimos la factura {folio} de Impulso Académico por {total} (folio fiscal {uuid}). Le envío el PDF y el XML.',
+  tplDatos: 'Hola {tutor}, para emitir su factura necesitamos su Constancia de Situación Fiscal (PDF) o estos datos tal como aparecen en ella: RFC, nombre completo o razón social, código postal, régimen fiscal y el correo donde quiere recibir la factura. ¡Gracias!',
+  meses: {}
+};
+/* Catálogos (solo las claves que usa este módulo). Fuente: catálogos del Anexo 20 del SAT. */
+const FX_REGIMENES = {
+  '605':'Sueldos y Salarios e Ingresos Asimilados a Salarios',
+  '606':'Arrendamiento',
+  '608':'Demás ingresos',
+  '612':'Personas Físicas con Actividades Empresariales y Profesionales',
+  '616':'Sin obligaciones fiscales',
+  '621':'Incorporación Fiscal',
+  '625':'Actividades Empresariales con ingresos a través de Plataformas Tecnológicas',
+  '626':'Régimen Simplificado de Confianza',
+  '601':'General de Ley Personas Morales',
+  '603':'Personas Morales con Fines no Lucrativos'
+};
+const FX_USOS = { S01:'Sin efectos fiscales', G03:'Gastos en general' };
+/* Regímenes con los que G03 no es válido (solo admiten deducciones personales, pagos, nómina o S01) */
+const FX_NO_G03 = ['605','616'];
+const FX_FORMAS = { '01':'Efectivo', '03':'Transferencia electrónica de fondos (incluye SPEI)' };
+/* ISR RESICO personas físicas, tasa mensual sobre ingresos cobrados sin IVA (art. 113-E LISR) */
+const FX_TASAS = [[2500000,1.00],[5000000,1.10],[8333333,1.50],[20833333,2.00],[350000000,2.50]]; /* [límite en centavos, tasa %] */
+const FX_LIMITE_ANUAL = 350000000; /* $3,500,000.00 en centavos */
+const FX_GLOBAL = { rfc:'XAXX010101000', nombre:'PUBLICO EN GENERAL', regimen:'616', uso:'S01', clave:'01010101', unidad:'ACT', desc:'Venta', periodicidad:'04' };
+
+Object.assign(S, { fiscal:{}, invoices:{}, cobros:{}, fcfg: structuredClone(DEFAULT_FCFG), factPin:null, factUnlock:false, fxFiles:{},
+  factTab:'cobros', factYm: todayS().slice(0,7), fxInvFilter:'todas', fxCliQ:'' });
+FACT_COLS.forEach(c => S.loaded[c] = false);
+
+function mergeFcfg(stored){
+  const c = structuredClone(DEFAULT_FCFG);
+  if (!stored) return c;
+  for (const k of Object.keys(stored)){
+    if (k==='emisor') c.emisor = Object.assign({}, c.emisor, stored.emisor);
+    else if (k==='meses') c.meses = Object.assign({}, stored.meses);
+    else c[k] = stored[k];
+  }
+  return c;
+}
+
+/* ---------- dinero (siempre en centavos enteros) ---------- */
+const cents = v => Math.round(Number(v || 0) * 100);
+const money = c => '$' + (c/100).toLocaleString('es-MX', { minimumFractionDigits:2, maximumFractionDigits:2 });
+const dec2 = c => (c/100).toFixed(2);
+/* IVA de un importe en centavos, redondeado a centavos (mitad hacia arriba) */
+const iva16 = baseC => Math.floor((baseC * 16 + 50) / 100);
+/* Precio con IVA incluido -> base sin IVA tal que base + IVA(base) = total exacto */
+function desglose(totalC){
+  const b0 = Math.round(totalC * 100 / 116);
+  for (const d of [0,-1,1,-2,2,-3,3]){
+    const b = b0 + d;
+    if (b >= 0 && b + iva16(b) === totalC) return { base:b, iva:iva16(b), total:totalC, dif:0 };
+  }
+  return { base:b0, iva:iva16(b0), total:b0 + iva16(b0), dif: b0 + iva16(b0) - totalC };
+}
+function tasaResico(baseC){
+  for (const [lim, t] of FX_TASAS) if (baseC <= lim) return t;
+  return null;
+}
+
+/* ---------- fechas ---------- */
+const ymLabel = ym => { const [y,m] = ym.split('-').map(Number); return `${MESL[m-1]} ${y}`; };
+const ymNext = ym => { const [y,m] = ym.split('-').map(Number); return m===12 ? `${y+1}-01` : `${y}-${pad(m+1)}`; };
+const ymPrev = ym => { const [y,m] = ym.split('-').map(Number); return m===1 ? `${y-1}-12` : `${y}-${pad(m-1)}`; };
+/* Día 17 del mes siguiente; si cae en sábado o domingo se recorre al lunes (no considera días festivos) */
+function dueDate(ym){
+  let d = ymNext(ym) + '-17';
+  while (dowOf(d)===0 || dowOf(d)===6) d = addDays(d, 1);
+  return d;
+}
+const isoLocal = iso => ds(new Date(iso));
+
+/* ---------- validaciones de datos fiscales ---------- */
+const normName = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
+function rfcTipo(rfc){
+  const r = String(rfc||'').toUpperCase();
+  if (/^[A-ZÑ&]{4}\d{6}[A-Z0-9]{3}$/.test(r)) return 'pf';
+  if (/^[A-ZÑ&]{3}\d{6}[A-Z0-9]{3}$/.test(r)) return 'pm';
+  return null;
+}
+function checkClient(c){
+  const errs = [], warns = [];
+  if (!c) return { errs:['No hay datos fiscales del cliente.'], warns };
+  const t = rfcTipo(c.rfc);
+  if (!c.rfc) errs.push('Falta el RFC.');
+  else if (c.rfc==='XAXX010101000' || c.rfc==='XEXX010101000') errs.push('El RFC genérico no sirve para una factura a nombre de una persona. Si no tiene RFC, su pago va en la factura global.');
+  else if (!t) errs.push('El RFC no tiene un formato válido (13 caracteres para persona física, 12 para empresa).');
+  if (!c.nombre) errs.push('Falta el nombre o razón social.');
+  else if (t==='pm' && /\b(S\.?\s?A\.?|S\.?\s?C\.?|DE C\.?\s?V\.?|S\.? DE R\.?L\.?|A\.?\s?C\.?)\s*$/i.test(c.nombre)) warns.push('Para empresas se escribe el nombre sin el régimen societario (sin “S.A. de C.V.”), tal como en la constancia.');
+  if (!/^\d{5}$/.test(c.cp||'')) errs.push('El código postal debe tener 5 dígitos (el de su constancia, no el de su casa si son distintos).');
+  if (!c.regimen) errs.push('Falta el régimen fiscal.');
+  else if (t==='pf' && ['601','603'].includes(c.regimen)) errs.push('Ese régimen es de empresas y el RFC es de persona física.');
+  else if (t==='pm' && !['601','603','626'].includes(c.regimen)) errs.push('Ese régimen es de personas físicas y el RFC es de empresa.');
+  if (!c.uso) errs.push('Falta el uso del CFDI.');
+  else if (c.uso==='G03' && FX_NO_G03.includes(c.regimen)) errs.push(`Con el régimen ${c.regimen} el uso G03 no es válido. Usa S01 (Sin efectos fiscales).`);
+  else if (c.uso==='G03') warns.push('Las clases de regularización de un hijo no son un gasto de negocio: lo correcto es S01, salvo que el cliente te indique otra cosa por escrito.');
+  if (t==='pm') warns.push('Es una empresa: las personas morales retienen ISR de 1.25% a quien tributa en RESICO (art. 113-J LISR) y pueden retener IVA. Confirma con su área de pagos antes de facturar; el total a pagar cambia.');
+  if (!c.email) warns.push('No hay correo: la factura solo podrá enviarse por WhatsApp.');
+  if (c.csfFecha && daysBetween(c.csfFecha, todayS()) > 365) warns.push('La constancia que revisaste tiene más de un año: pide una actual para evitar rechazos.');
+  return { errs, warns };
+}
+function checkEmisor(){
+  const e = S.fcfg.emisor, errs = [];
+  if (rfcTipo(e.rfc)!=='pf') errs.push('RFC del emisor');
+  if (!e.nombre) errs.push('nombre del emisor');
+  if (!/^\d{5}$/.test(e.cp||'')) errs.push('código postal de expedición');
+  if (!S.fcfg.claveProdServ) errs.push('clave de producto o servicio');
+  return errs;
+}
+
+/* ---------- cobros (pagos registrados en la agenda + manuales) ---------- */
+function conceptoDe(b){
+  const s = stu(b.studentId);
+  const periodo = b.type==='impulso' ? `del ${fmtDY(b.start)} al ${fmtDY(b.end)}` : fmtDY(b.date);
+  const plan = b.type==='impulso' ? planLabel(b.plan) : b.type==='tutoria' ? 'Tutoría' : 'Reposición';
+  return fill(S.fcfg.conceptoTpl, { plan, alumno: s.name, periodo });
+}
+function allCobros(){
+  const key = 'fx-cobros-' + S.ver + '-' + (S.fxVer||0);
+  if (S.memo[key]) return S.memo[key];
+  const out = [];
+  for (const b of S.bk){
+    if (!b.paidAt) continue;
+    const m = S.cobros[b.id] || {};
+    out.push({ id:b.id, src:'agenda', bookingId:b.id, studentId:b.studentId, fecha: m.fecha || isoLocal(b.paidAt),
+      monto: cents(b.amount), concepto: m.concepto || conceptoDe(b), formaPago: m.formaPago || '', pideFactura: !!m.pideFactura,
+      clientId: m.clientId || defaultClientId(b.studentId), nota: m.nota || '', cancelada: b.status==='cancel', meta: m });
+  }
+  for (const [id, m] of Object.entries(S.cobros)){
+    if (!m.manual) continue;
+    out.push({ id, src:'manual', studentId: m.studentId || '', fecha: m.fecha, monto: cents(m.monto), concepto: m.concepto || '',
+      formaPago: m.formaPago || '', pideFactura: !!m.pideFactura, clientId: m.clientId || defaultClientId(m.studentId), nota: m.nota || '', cancelada: false, meta: m });
+  }
+  out.sort((a,b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0);
+  return (S.memo[key] = out);
+}
+function defaultClientId(studentId){
+  if (!studentId) return '';
+  const c = Object.values(S.fiscal).find(f => (f.studentIds||[]).includes(studentId));
+  return c ? c.id : '';
+}
+const vigentes = () => Object.values(S.invoices).filter(i => i.status!=='cancelada');
+function coverage(){
+  const key = 'fx-cov-' + (S.fxVer||0);
+  if (S.memo[key]) return S.memo[key];
+  const m = {};
+  for (const inv of vigentes()) for (const cid of inv.cobroIds||[]) (m[cid] = m[cid] || []).push(inv);
+  return (S.memo[key] = m);
+}
+function cobroEstado(c){
+  const inv = coverage()[c.id] || [];
+  if (inv.length > 1) return { k:'dup', inv };
+  if (inv.length === 1) return { k: inv[0].kind==='global' ? 'global' : 'individual', inv };
+  return { k: c.pideFactura ? 'porFacturar' : 'paraGlobal', inv };
+}
+const ESTADO_CHIP = {
+  individual: '<span class="chip conf">Facturado</span>',
+  global: '<span class="chip conf">En factura global</span>',
+  porFacturar: '<span class="chip pre">Por facturar</span>',
+  paraGlobal: '<span class="chip basico">Va a la global</span>',
+  dup: '<span class="chip venc">En dos facturas</span>'
+};
+const cobrosDe = ym => allCobros().filter(c => c.fecha.slice(0,7) === ym);
+function factPendientes(){
+  if (!S.loaded.cobros || !S.loaded.invoices) return 0;
+  const cur = todayS().slice(0,7);
+  let n = 0;
+  const mesesSinGlobal = new Set();
+  for (const c of allCobros()){
+    if (c.cancelada || !c.monto) continue;
+    const e = cobroEstado(c).k;
+    if (e==='porFacturar' || e==='dup') n++;
+    if (e==='paraGlobal' && c.fecha.slice(0,7) < cur) mesesSinGlobal.add(c.fecha.slice(0,7));
+  }
+  return n + mesesSinGlobal.size;
+}
+async function saveCobroMeta(c, patch){
+  const d = Object.assign({}, S.cobros[c.id] || {}, patch);
+  if (c.src==='agenda') d.bookingId = c.bookingId;
+  delete d.id;
+  return dbSet('cobros', c.id, d);
+}
+/* Folio de nota para cada operación de la factura global (NoIdentificacion) */
+async function ensureNotas(list){
+  const max = {};
+  for (const c of allCobros()){ const m = /^N(\d{4})-(\d+)$/.exec(c.nota||''); if (m) max[m[1]] = Math.max(max[m[1]]||0, +m[2]); }
+  let n = 0;
+  for (const c of list){
+    if (c.nota) continue;
+    const y = c.fecha.slice(0,4); max[y] = (max[y]||0) + 1;
+    c.nota = `N${y}-${String(max[y]).padStart(4,'0')}`;
+    await saveCobroMeta(c, { nota: c.nota }); n++;
+  }
+  return n;
+}
+/* Forma de pago para varias operaciones: la del mayor monto (criterio de la Guía de llenado del Anexo 20) */
+function formaMayor(list){
+  const t = {};
+  list.forEach(c => { if (c.formaPago) t[c.formaPago] = (t[c.formaPago]||0) + c.monto; });
+  const k = Object.keys(t).sort((a,b) => t[b]-t[a])[0];
+  return k || '';
+}
+
+/* ---------- archivos en GitHub ---------- */
+function bytesToB64(buf){ const by = new Uint8Array(buf); let bin = ''; for (let i=0;i<by.length;i+=0x8000) bin += String.fromCharCode.apply(null, by.subarray(i, i+0x8000)); return btoa(bin); }
+async function ghPutFile(gc, path, buf, message){
+  const url = `/repos/${gc.owner}/${gc.repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
+  let sha = null;
+  const g = await ghFetch(gc, `${url}?ref=${encodeURIComponent(gc.branch||'main')}`);
+  if (g.ok){ const j = await g.json(); sha = j.sha; } else if (g.status!==404){ throw new Error(ghErrText(g.status)); }
+  const body = { message, content: bytesToB64(buf), branch: gc.branch||'main' };
+  if (sha) body.sha = sha;
+  const p = await ghFetch(gc, url, { method:'PUT', body: JSON.stringify(body) });
+  if (!p.ok){ let j = null; try { j = await p.json(); } catch(e){} throw new Error(ghErrText(p.status, j)); }
+  return true;
+}
+async function ghGetFile(gc, path){
+  const url = `/repos/${gc.owner}/${gc.repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(gc.branch||'main')}`;
+  const r = await ghFetch(gc, url, { headers:{ Accept:'application/vnd.github.raw+json' } });
+  if (!r.ok) throw new Error(ghErrText(r.status));
+  return r.arrayBuffer();
+}
+async function ghDispatch(gc, workflow, inputs){
+  const r = await ghFetch(gc, `/repos/${gc.owner}/${gc.repo}/actions/workflows/${workflow}/dispatches`, { method:'POST', body: JSON.stringify({ ref: gc.branch||'main', inputs }) });
+  if (r.status===204) return { ok:true };
+  if (r.status===404) return { ok:false, msg:'No encontré el envío de facturas en el repositorio. En Facturación → Configuración pulsa “Instalar / actualizar envío por correo”.' };
+  if (r.status===403) return { ok:false, msg:'El token no tiene el permiso “Actions: Read and write”.' };
+  if (r.status===422) return { ok:false, msg:'GitHub rechazó los datos del envío (422). Instala de nuevo el envío por correo en Facturación → Configuración.' };
+  return { ok:false, msg:`GitHub respondió ${r.status}.` };
+}
+function saveBlob(filename, blob){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+const hasRepo = () => !!(S.db && S.db.gh);
+function invFileName(inv, ext){ return `${inv.serie||''}${inv.folio||''}_${inv.uuid}.${ext}`.replace(/^_/, ''); }
+
+/* ---------- lectura del XML (CFDI 4.0) ---------- */
+function parseCfdi(text){
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) throw new Error('El archivo no es un XML válido.');
+  const all = [...doc.getElementsByTagName('*')];
+  const one = n => all.find(e => e.localName===n);
+  const comp = doc.documentElement;
+  if (!comp || comp.localName!=='Comprobante') throw new Error('El XML no es una factura (CFDI).');
+  const a = (el, n) => el ? (el.getAttribute(n) ?? '') : '';
+  const emi = one('Emisor'), rec = one('Receptor'), tfd = one('TimbreFiscalDigital'), glo = one('InformacionGlobal');
+  const imp = [...comp.children].find(e => e.localName==='Impuestos');
+  const conceptos = all.filter(e => e.localName==='Concepto').map(e => ({ clave:a(e,'ClaveProdServ'), noId:a(e,'NoIdentificacion'), cantidad:a(e,'Cantidad'), unidad:a(e,'ClaveUnidad'), desc:a(e,'Descripcion'), valor:cents(a(e,'ValorUnitario')), importe:cents(a(e,'Importe')), objeto:a(e,'ObjetoImp') }));
+  if (!tfd) throw new Error('El XML no tiene timbre fiscal (UUID). Descarga el XML timbrado desde el portal del SAT.');
+  return {
+    version: a(comp,'Version'), serie: a(comp,'Serie'), folio: a(comp,'Folio'), fecha: a(comp,'Fecha'), subtotal: cents(a(comp,'SubTotal')), total: cents(a(comp,'Total')),
+    moneda: a(comp,'Moneda'), tipo: a(comp,'TipoDeComprobante'), metodo: a(comp,'MetodoPago'), forma: a(comp,'FormaPago'), lugar: a(comp,'LugarExpedicion'), exportacion: a(comp,'Exportacion'),
+    emisor: { rfc: a(emi,'Rfc'), nombre: a(emi,'Nombre'), regimen: a(emi,'RegimenFiscal') },
+    receptor: { rfc: a(rec,'Rfc'), nombre: a(rec,'Nombre'), cp: a(rec,'DomicilioFiscalReceptor'), regimen: a(rec,'RegimenFiscalReceptor'), uso: a(rec,'UsoCFDI') },
+    global: glo ? { periodicidad: a(glo,'Periodicidad'), meses: a(glo,'Meses'), anio: a(glo,'Año') } : null,
+    iva: imp ? cents(a(imp,'TotalImpuestosTrasladados')) : 0, retenido: imp ? cents(a(imp,'TotalImpuestosRetenidos')) : 0,
+    conceptos, uuid: a(tfd,'UUID').toUpperCase(), fechaTimbrado: a(tfd,'FechaTimbrado')
+  };
+}
+/* Lo que la factura debería decir, según los cobros que ampara */
+function expectedFor(kind, cobroIds, ym){
+  const list = cobroIds.map(id => allCobros().find(c => c.id===id)).filter(Boolean);
+  const totalC = list.reduce((s,c) => s + c.monto, 0);
+  const parts = list.map(c => desglose(c.monto));
+  const base = parts.reduce((s,p) => s + p.base, 0), iva = parts.reduce((s,p) => s + p.iva, 0);
+  const e = S.fcfg.emisor;
+  if (kind==='global') return { kind, list, total: base + iva, base, iva, forma: formaMayor(list),
+    receptor: { rfc:FX_GLOBAL.rfc, nombre:FX_GLOBAL.nombre, cp:e.cp, regimen:FX_GLOBAL.regimen, uso:FX_GLOBAL.uso }, ym, emisorRfc: e.rfc };
+  const cli = S.fiscal[list[0] ? list[0].clientId : ''] || null;
+  return { kind, list, total: base + iva, base, iva, forma: formaMayor(list), cli,
+    receptor: cli ? { rfc:cli.rfc, nombre:cli.nombre, cp:cli.cp, regimen:cli.regimen, uso:cli.uso } : null, ym: list[0] ? list[0].fecha.slice(0,7) : ym, emisorRfc: e.rfc };
+}
+function compareCfdi(x, exp){
+  const errs = [], warns = [], oks = [];
+  const eq = (label, got, want, bad) => { if (String(got) === String(want)) oks.push(label); else (bad || errs).push(`${label}: la factura dice “${got || '(vacío)'}” y debería decir “${want || '(vacío)'}”.`); };
+  if (x.version!=='4.0') warns.push(`La factura es versión ${x.version || '(sin versión)'}; se esperaba 4.0.`);
+  if (x.tipo!=='I') errs.push(`El tipo de comprobante es “${x.tipo}”; debe ser I (Ingreso).`);
+  if (exp.emisorRfc) eq('RFC del emisor', x.emisor.rfc, exp.emisorRfc);
+  if (Object.values(S.invoices).some(i => i.uuid===x.uuid)) errs.push('Esta factura (mismo folio fiscal) ya está registrada.');
+  if (exp.receptor){
+    eq('RFC del receptor', x.receptor.rfc, exp.receptor.rfc);
+    if (normName(x.receptor.nombre) === normName(exp.receptor.nombre)){
+      if (x.receptor.nombre.trim() !== exp.receptor.nombre.trim()) warns.push('El nombre del receptor coincide salvo acentos, mayúsculas o espacios. Revisa que esté igual que en su constancia.');
+      else oks.push('Nombre del receptor');
+    } else errs.push(`Nombre del receptor: la factura dice “${x.receptor.nombre}” y debería decir “${exp.receptor.nombre}”.`);
+    eq('Código postal del receptor', x.receptor.cp, exp.receptor.cp);
+    eq('Régimen fiscal del receptor', x.receptor.regimen, exp.receptor.regimen);
+    eq('Uso del CFDI', x.receptor.uso, exp.receptor.uso);
+  } else warns.push('No hay datos fiscales del cliente para comparar el receptor.');
+  eq('Método de pago', x.metodo, 'PUE');
+  if (exp.forma) eq('Forma de pago', x.forma, exp.forma); else warns.push('No registraste la forma de pago de los cobros; no se pudo comparar.');
+  eq('Moneda', x.moneda, 'MXN');
+  if (S.fcfg.emisor.cp) eq('Lugar de expedición', x.lugar, S.fcfg.emisor.cp, warns);
+  if (Math.abs(x.total - exp.total) <= 1) oks.push('Total'); else errs.push(`Total: la factura dice ${money(x.total)} y los cobros suman ${money(exp.total)}.`);
+  if (Math.abs(x.iva - exp.iva) > 1 * Math.max(1, exp.list.length)) warns.push(`IVA: la factura trae ${money(x.iva)} y lo esperado es ${money(exp.iva)}.`);
+  if (x.retenido) warns.push(`La factura tiene retenciones por ${money(x.retenido)}.`);
+  if (exp.kind==='global'){
+    if (!x.global) errs.push('No tiene la sección de “Información global”: no es una factura global.');
+    else {
+      const [y, m] = exp.ym.split('-');
+      eq('Periodicidad', x.global.periodicidad, FX_GLOBAL.periodicidad, warns);
+      eq('Mes de la global', x.global.meses, m);
+      eq('Año de la global', x.global.anio, y);
+    }
+    if (x.conceptos.length !== exp.list.length) errs.push(`La factura tiene ${x.conceptos.length} conceptos y hay ${exp.list.length} cobros para la global.`);
+    const notas = new Set(exp.list.map(c => c.nota).filter(Boolean));
+    const faltan = x.conceptos.filter(c => c.noId && !notas.has(c.noId)).length;
+    if (notas.size && faltan) warns.push(`${faltan} concepto(s) traen un número de nota que no corresponde a los cobros del mes.`);
+  } else {
+    if (x.global) errs.push('Trae “Información global”: esta factura es global y no individual.');
+    if (S.fcfg.claveProdServ && x.conceptos.some(c => c.clave !== S.fcfg.claveProdServ)) warns.push(`La clave de producto no es la que configuraste (${S.fcfg.claveProdServ}).`);
+    if (exp.list[0] && x.fecha.slice(0,7) !== exp.list[0].fecha.slice(0,7)) warns.push(`La factura es de ${ymLabel(x.fecha.slice(0,7))} y el cobro es de ${ymLabel(exp.list[0].fecha.slice(0,7))}: en la declaración el portal la precarga en el mes de la factura. Declara el ingreso en el mes en que cobraste.`);
+  }
+  return { errs, warns, oks };
+}
+
+/* ---------- PIN de facturación ---------- */
+const factUnlocked = () => !!(S.factUnlock && sessionValid());
+function pinLocked(){ const l = lsGet('ia-fact-lock'); return l && l.until > Date.now() ? l : null; }
+
+/* =====================================================================
+   VISTA
+   ===================================================================== */
+const FX_TABS = [['cobros','Cobros'],['global','Factura global'],['facturas','Facturas emitidas'],['clientes','Datos fiscales'],['resumen','Resumen del mes'],['config','Configuración']];
+function viewFact(){
+  if (!FACT_COLS.every(c => S.loaded[c])) return `<div class="empty">Cargando facturación…</div>`;
+  if (!S.factPin) return fxPinSetup();
+  if (!factUnlocked()) return fxPinAsk();
+  const tab = FX_TABS.some(t => t[0]===S.factTab) ? S.factTab : 'cobros';
+  const monthPick = ['cobros','global','resumen'].includes(tab) ? `<div class="row"><button class="btn sm" data-act="fxym" data-n="-1" aria-label="Mes anterior">‹</button><input type="month" id="fx-ym" value="${S.factYm}" style="width:auto"><button class="btn sm" data-act="fxym" data-n="1" aria-label="Mes siguiente">›</button></div>` : '';
+  const emiErr = checkEmisor();
+  const body = { cobros:fxCobros, global:fxGlobal, facturas:fxFacturas, clientes:fxClientes, resumen:fxResumen, config:fxConfig }[tab]();
+  return `<div class="toolbar"><h2>Facturación</h2><div class="row">${monthPick}<button class="btn sm ghost" data-act="fxlock">Bloquear</button></div></div>
+    <div class="seg" style="margin-bottom:14px;flex-wrap:wrap">${FX_TABS.map(([k,l]) => `<button data-act="fxtab" data-t="${k}" aria-pressed="${tab===k}">${l}</button>`).join('')}</div>
+    ${emiErr.length && tab!=='config' ? `<div class="note warn" style="margin-bottom:12px">Antes de facturar completa en <button class="btn sm" data-act="fxtab" data-t="config">Configuración</button>: ${esc(emiErr.join(', '))}.</div>` : ''}
+    ${!hasRepo() ? `<div class="note warn" style="margin-bottom:12px">Sin GitHub conectado, la app guarda los datos de las facturas pero no los archivos XML y PDF ni puede enviarlos por correo.</div>` : ''}
+    ${body}`;
+}
+function fxPinSetup(){
+  return `<h2>Facturación</h2><form class="panel stack" id="fx-pin-new" style="margin-top:12px;max-width:440px" novalidate>
+    <h3>Crea el PIN de facturación</h3>
+    <p class="small muted" style="margin:0">Esta sección tiene RFC y datos fiscales de las familias. El PIN es un segundo candado para que solo administración entre aquí. Usa 6 dígitos que no sean la contraseña de la agenda.</p>
+    <div class="field"><label for="fx-pin1">PIN (6 dígitos)</label><input id="fx-pin1" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6"></div>
+    <div class="field"><label for="fx-pin2">Repetir PIN</label><input id="fx-pin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6"></div>
+    <div class="err" id="fx-pin-err" role="alert"></div>
+    <button class="btn primary" type="submit">Guardar PIN</button></form>`;
+}
+function fxPinAsk(){
+  const l = pinLocked();
+  return `<h2>Facturación</h2><form class="panel stack" id="fx-pin-form" style="margin-top:12px;max-width:380px" novalidate>
+    <h3>Escribe el PIN de facturación</h3>
+    <div class="field"><label for="fx-pin">PIN</label><input id="fx-pin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" ${l?'disabled':''}></div>
+    <div class="err" id="fx-pin-err" role="alert">${l ? `Demasiados intentos. Intenta de nuevo a las ${hm(new Date(l.until))}.` : ''}</div>
+    <button class="btn primary" type="submit" ${l?'disabled':''}>Entrar</button>
+    <p class="small muted" style="margin:0">¿Olvidaste el PIN? El dueño de la agenda puede borrarlo en GitHub (archivo data/agenda.json, config → factpin) o pídemelo y te indico cómo.</p></form>`;
+}
+
+/* ---------- Cobros ---------- */
+function fxCobros(){
+  const ym = S.factYm, list = cobrosDe(ym);
+  let tot = 0, base = 0, iva = 0, porF = 0, paraG = 0, paraGm = 0, fact = 0, glob = 0;
+  for (const c of list){
+    if (!c.monto || c.cancelada) continue;
+    const d = desglose(c.monto); tot += c.monto; base += d.base; iva += d.iva;
+    const e = cobroEstado(c).k;
+    if (e==='porFacturar' || e==='dup') porF++;
+    if (e==='paraGlobal'){ paraG++; paraGm += c.monto; }
+    if (e==='individual') fact += c.monto;
+    if (e==='global') glob += c.monto;
+  }
+  const sinForma = list.filter(c => c.monto && !c.formaPago).length;
+  const kpi = (v, l, hot, act) => `<div class="kpi ${hot?'hot':''}" ${act||''}><b>${v}</b><span>${l}</span></div>`;
+  const rows = list.map(c => {
+    const s = c.studentId ? stu(c.studentId) : null, e = cobroEstado(c), cli = S.fiscal[c.clientId];
+    const acts = [];
+    if (e.k==='porFacturar') acts.push(`<button class="btn sm primary" data-act="fxguide" data-id="${c.id}">Guía para el SAT</button>`, `<button class="btn sm" data-act="fxreg" data-kind="individual" data-ids="${c.id}">Registrar factura</button>`);
+    if (e.k==='individual' || e.k==='global' || e.k==='dup') e.inv.forEach(i => acts.push(`<button class="btn sm" data-act="fxinv" data-id="${i.id}">${i.kind==='global'?'Ver global':'Ver factura'}</button>`));
+    if (e.k==='global') acts.push(`<button class="btn sm ghost" data-act="fxnominal" data-id="${c.id}">Pidió factura después</button>`);
+    if (c.src==='manual') acts.push(`<button class="btn sm ghost" data-act="fxcobro" data-id="${c.id}">Editar</button>`);
+    if (c.src==='agenda') acts.push(`<button class="btn sm ghost" data-act="booking" data-id="${c.bookingId}">Reserva</button>`);
+    const lock = e.k==='individual' || e.k==='global' || e.k==='dup';
+    return `<tr>
+      <td class="small"><input type="date" data-fx="fecha" data-id="${c.id}" value="${c.fecha}" ${lock?'disabled':''} aria-label="Fecha de cobro" style="padding:5px 6px;font-size:.82rem;width:auto"></td>
+      <td><b>${s ? esc(labelOf(s)) : '<span class="muted">Sin alumno</span>'}</b><div class="small muted">${esc(c.concepto)}</div>
+        ${c.cancelada ? '<div class="small" style="color:var(--warn)">La reserva está cancelada pero tiene pago registrado. Si devolviste el dinero, no se factura.</div>' : ''}
+        ${!c.monto ? '<div class="small" style="color:var(--bad)">El pago está registrado con monto $0: corrige el monto en la reserva.</div>' : ''}</td>
+      <td style="white-space:nowrap"><b>${money(c.monto)}</b></td>
+      <td><select data-fx="forma" data-id="${c.id}" ${lock?'disabled':''} aria-label="Forma de pago"><option value="">— elegir —</option>${Object.entries(FX_FORMAS).map(([k,l]) => `<option value="${k}" ${c.formaPago===k?'selected':''}>${k} ${k==='03'?'Transferencia':l}</option>`).join('')}</select></td>
+      <td><label class="row small" style="gap:6px"><input type="checkbox" data-fx="pide" data-id="${c.id}" ${c.pideFactura?'checked':''} ${lock?'disabled':''}> Pidió factura</label>
+        ${c.pideFactura ? (cli ? `<button class="btn sm ghost" data-act="fxcli" data-id="${cli.id}">${esc(cli.nombre || cli.rfc)}</button>${checkClient(cli).errs.length?' <span class="chip venc">Datos incompletos</span>':''}` : `<button class="btn sm" data-act="fxpickcli" data-id="${c.id}">Elegir datos fiscales</button>`) : ''}</td>
+      <td>${ESTADO_CHIP[e.k]}</td>
+      <td><div class="row">${acts.join('')}</div></td></tr>`;
+  }).join('');
+  return `<div class="kpis">
+      ${kpi(money(tot), `Cobrado en ${ymLabel(ym)} (con IVA)`)}
+      ${kpi(money(base), 'Ingresos sin IVA')}
+      ${kpi(money(iva), 'IVA cobrado (16%)')}
+      ${kpi(porF, 'Por facturar a nombre del tutor', porF>0)}
+      ${kpi(`${paraG} · ${money(paraGm)}`, 'Van a la factura global', false, 'data-act="fxtab" data-t="global" role="button"')}
+    </div>
+    ${sinForma ? `<div class="note warn" style="margin-bottom:12px">${sinForma} cobro(s) sin forma de pago. Es un dato obligatorio de la factura: elige Efectivo (01) o Transferencia (03).</div>` : ''}
+    <div class="row" style="justify-content:space-between;margin-bottom:10px"><p class="small muted" style="margin:0">Los pagos se toman de las reservas con “Pago verificado”. La fecha de cobro es la del día en que se verificó el pago; cámbiala si el dinero llegó otro día. Si el papá pidió factura, márcalo y elige sus datos fiscales; si no, el pago va a la factura global del mes.</p>
+      <button class="btn" data-act="fxcobro" data-id="">+ Cobro fuera de la agenda</button></div>
+    ${list.length ? `<div class="panel scroll-x" style="padding:6px"><table class="list"><thead><tr><th>Fecha de cobro</th><th>Alumno y concepto</th><th>Monto</th><th>Forma de pago</th><th>Factura</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : `<div class="empty">No hay pagos verificados en ${ymLabel(ym)}.</div>`}`;
+}
+
+/* ---------- Factura global ---------- */
+function fxGlobal(){
+  const ym = S.factYm;
+  const list = cobrosDe(ym).filter(c => c.monto && !c.cancelada && cobroEstado(c).k==='paraGlobal');
+  const glob = vigentes().filter(i => i.kind==='global' && i.ym===ym);
+  const lim = ymNext(ym) + '-01';
+  const pasado = todayS() > lim;
+  let head = '';
+  if (glob.length) head = `<div class="panel stack" style="margin-bottom:12px"><h3>Global registrada de ${ymLabel(ym)}</h3>${glob.map(g => `<div class="row"><button class="btn sm" data-act="fxinv" data-id="${g.id}">${esc((g.serie||'')+(g.folio||''))} · ${money(g.total)} · ${(g.cobroIds||[]).length} cobros</button></div>`).join('')}
+    ${list.length ? `<div class="note bad">Hay ${list.length} cobro(s) de ${ymLabel(ym)} que no están en la global registrada. Lo seguro es cancelar esa global en el SAT con motivo 01 y emitir una nueva que incluya todos los cobros del mes; regístrala aquí como sustituta.</div>` : '<div class="note ok">Todos los cobros del mes sin factura individual están en la global.</div>'}</div>`;
+  const pend = cobrosDe(ym).filter(c => c.monto && !c.cancelada && cobroEstado(c).k==='porFacturar');
+  if (pend.length) head += `<div class="note warn" style="margin-bottom:12px">${pend.length} pago(s) de ${ymLabel(ym)} están marcados como “pidió factura” y aún no tienen factura. Factúralos a su nombre antes de emitir la global; si al final no la quieren, desmárcalos en Cobros para que entren en la global.</div>`;
+  if (!list.length) return head + (glob.length ? '' : `<div class="empty">En ${ymLabel(ym)} no hay cobros para la factura global.</div>`);
+  const sinNota = list.filter(c => !c.nota).length, sinForma = list.filter(c => !c.formaPago).length;
+  const rows = list.map(c => { const d = desglose(c.monto); return { c, d }; });
+  const base = rows.reduce((s,r) => s + r.d.base, 0), iva = rows.reduce((s,r) => s + r.d.iva, 0);
+  const forma = formaMayor(list);
+  const e = S.fcfg.emisor;
+  const fld = (l, v, hint) => fxField(l, v, hint);
+  return head + `<div class="panel stack">
+    <div class="row" style="justify-content:space-between"><h3>Guía de llenado: factura global de ${ymLabel(ym)}</h3>
+      <span class="chip ${pasado?'venc':'tent'}">Emítela a más tardar el ${fmtDY(lim)}</span></div>
+    <p class="small muted" style="margin:0">Ampara los ${list.length} pagos del mes que no pidieron factura. Según la Guía de llenado del CFDI global del SAT, se emite a más tardar 24 horas después del cierre del periodo (regla 2.7.1.21 de la RMF). Conviene emitirla el último día del mes, después del último cobro, para que la factura quede con fecha del mismo mes que los ingresos.</p>
+    ${sinForma ? `<div class="note bad">${sinForma} cobro(s) no tienen forma de pago. Complétala en Cobros antes de facturar.</div>` : ''}
+    ${sinNota ? `<div class="note warn">Cada operación necesita un número de nota (NoIdentificacion). <button class="btn sm primary" data-act="fxnotas">Asignar números de nota</button></div>` : ''}
+    <div class="lbl">1. Receptor</div>
+    <div class="fx-grid">${fld('RFC', FX_GLOBAL.rfc)}${fld('Nombre', FX_GLOBAL.nombre)}${fld('Código postal', e.cp, 'El mismo que el lugar de expedición')}${fld('Régimen fiscal', FX_GLOBAL.regimen + ' Sin obligaciones fiscales')}${fld('Uso del CFDI', FX_GLOBAL.uso + ' Sin efectos fiscales')}</div>
+    <div class="lbl">2. Información global</div>
+    <div class="fx-grid">${fld('Periodicidad', '04 Mensual')}${fld('Mes', ym.slice(5) + ' ' + MESL[+ym.slice(5)-1])}${fld('Año', ym.slice(0,4))}</div>
+    <div class="lbl">3. Comprobante</div>
+    <div class="fx-grid">${fld('Tipo', 'Ingreso')}${fld('Moneda', 'MXN')}${fld('Exportación', '01 No aplica')}${fld('Método de pago', 'PUE Pago en una sola exhibición')}${fld('Forma de pago', forma ? forma + ' ' + FX_FORMAS[forma] : '(falta)', 'La forma con la que se cobró el mayor monto')}</div>
+    <div class="lbl">4. Conceptos: uno por cada pago</div>
+    <p class="small muted" style="margin:0">En cada concepto: Clave ${FX_GLOBAL.clave}, Cantidad 1, Unidad ${FX_GLOBAL.unidad}, Descripción “${FX_GLOBAL.desc}”, Objeto de impuesto 02, IVA trasladado tasa 16%. El valor unitario es el precio sin IVA.</p>
+    <div class="scroll-x"><table class="list"><thead><tr><th>#</th><th>No. identificación</th><th>Valor unitario (sin IVA)</th><th>IVA 16%</th><th>Total del pago</th><th>Alumno</th></tr></thead><tbody>
+      ${rows.map(({c,d},i) => `<tr><td>${i+1}</td><td>${c.nota ? fxCopy(c.nota) : '<span class="muted">sin número</span>'}</td><td>${fxCopy(dec2(d.base))}</td><td>${dec2(d.iva)}</td><td>${money(c.monto)}${d.dif?` <span class="chip venc">dif ${dec2(d.dif)}</span>`:''}</td><td class="small">${c.studentId?esc(labelOf(stu(c.studentId))):''} · ${FX_FORMAS[c.formaPago] ? (c.formaPago==='01'?'Efectivo':'Transferencia') : 'sin forma'}</td></tr>`).join('')}
+      <tr><td colspan="2"><b>Total</b></td><td><b>${money(base)}</b></td><td><b>${money(iva)}</b></td><td><b>${money(base+iva)}</b></td><td></td></tr>
+    </tbody></table></div>
+    <div class="note">Revisa en la vista previa del SAT que el subtotal sea ${money(base)}, el IVA ${money(iva)} y el total ${money(base+iva)}.</div>
+    <div class="row"><button class="btn primary" data-act="fxreg" data-kind="global" data-ids="${list.map(c=>c.id).join(',')}" data-ym="${ym}" ${sinNota||sinForma?'disabled':''}>Ya la timbré: registrar XML y PDF</button></div>
+  </div>`;
+}
+const fxCopy = v => `<button class="fx-copy" data-act="fxcopy" data-v="${esc(v)}" title="Copiar">${esc(v)}</button>`;
+function fxField(label, value, hint){
+  return `<div class="fx-f"><span class="lbl">${esc(label)}</span>${value ? fxCopy(value) : '<span class="err">Falta</span>'}${hint?`<span class="small muted">${esc(hint)}</span>`:''}</div>`;
+}
+
+/* ---------- Facturas emitidas ---------- */
+function fxFacturas(){
+  const f = S.fxInvFilter;
+  let list = Object.values(S.invoices).sort((a,b) => (b.fecha||'') > (a.fecha||'') ? 1 : -1);
+  if (f==='vigentes') list = list.filter(i => i.status!=='cancelada');
+  if (f==='canceladas') list = list.filter(i => i.status==='cancelada');
+  if (f==='errores') list = list.filter(i => i.status!=='cancelada' && (i.checks?.errs||[]).length);
+  if (f==='sinenviar') list = list.filter(i => i.status!=='cancelada' && i.kind==='individual' && !(i.envios||[]).length);
+  return `<div class="row" style="justify-content:space-between;margin-bottom:12px">
+      <div class="seg">${[['todas','Todas'],['vigentes','Vigentes'],['sinenviar','Sin enviar'],['errores','Con errores'],['canceladas','Canceladas']].map(([k,l]) => `<button data-act="fxinvf" data-f="${k}" aria-pressed="${f===k}">${l}</button>`).join('')}</div>
+      <div class="row"><button class="btn" data-act="fxcsv">Descargar lista (Excel)</button><button class="btn" data-act="fxreg" data-kind="individual" data-ids="">+ Registrar otra factura</button></div></div>
+    ${list.length ? `<div class="panel scroll-x" style="padding:6px"><table class="list"><thead><tr><th>Fecha</th><th>Folio</th><th>Receptor</th><th>Total</th><th>Tipo</th><th>Estado</th><th>Envíos</th></tr></thead><tbody>
+      ${list.map(i => `<tr class="click" data-act="fxinv" data-id="${i.id}"><td class="small">${i.fecha?fmtDY(i.fecha.slice(0,10)):''}</td><td><b>${esc((i.serie||'')+(i.folio||'')) || '—'}</b><div class="small muted">${esc(i.uuid.slice(0,8))}…</div></td>
+        <td>${esc(i.receptor?.nombre||'')}<div class="small muted">${esc(i.receptor?.rfc||'')}</div></td><td><b>${money(i.total)}</b></td>
+        <td>${i.kind==='global'?`<span class="chip basico">Global ${esc(i.ym?ymLabel(i.ym):'')}</span>`:'<span class="chip imp">Individual</span>'}</td>
+        <td>${i.status==='cancelada'?'<span class="chip cancel">Cancelada</span>':(i.checks?.errs||[]).length?'<span class="chip venc">Con errores</span>':'<span class="chip conf">Vigente</span>'}</td>
+        <td class="small">${(i.envios||[]).length ? (i.envios.map(e => e.via==='correo'?'Correo':'WhatsApp').join(', ')) : (i.kind==='individual'?'<span class="muted">Sin enviar</span>':'—')}</td></tr>`).join('')}
+    </tbody></table></div>` : `<div class="empty">No hay facturas en esta lista.</div>`}`;
+}
+
+/* ---------- Datos fiscales (clientes) ---------- */
+function fxClientes(){
+  const q = S.fxCliQ.toLowerCase();
+  let list = Object.values(S.fiscal).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'', 'es'));
+  if (q) list = list.filter(c => [c.nombre, c.rfc, c.email, ...(c.studentIds||[]).map(id => stu(id).name)].join(' ').toLowerCase().includes(q));
+  return `<div class="row" style="justify-content:space-between;margin-bottom:12px"><input type="text" id="fx-cli-q" placeholder="Buscar por nombre, RFC o alumno" value="${esc(S.fxCliQ)}" style="max-width:340px">
+    <button class="btn primary" data-act="fxcli" data-id="">+ Datos fiscales</button></div>
+    ${list.length ? `<div class="panel scroll-x" style="padding:6px"><table class="list"><thead><tr><th>Nombre o razón social</th><th>RFC</th><th>Régimen · Uso</th><th>Alumnos</th><th>Revisión</th></tr></thead><tbody>
+      ${list.map(c => { const ck = checkClient(c); const n = vigentes().filter(i => i.clientId===c.id).length;
+        return `<tr class="click" data-act="fxcli" data-id="${c.id}"><td><b>${esc(c.nombre||'(sin nombre)')}</b><div class="small muted">${esc(c.email||'sin correo')} · ${n} factura(s)</div></td><td>${esc(c.rfc||'')}</td><td class="small">${esc(c.regimen||'')} · ${esc(c.uso||'')}</td>
+        <td class="small">${(c.studentIds||[]).map(id => esc(stu(id).name)).join(', ') || '—'}</td>
+        <td>${ck.errs.length?'<span class="chip venc">Incompleto</span>':ck.warns.length?'<span class="chip tent">Revisar</span>':'<span class="chip conf">Listo</span>'}</td></tr>`; }).join('')}
+    </tbody></table></div>` : `<div class="empty">${Object.keys(S.fiscal).length ? 'Nadie coincide con la búsqueda.' : 'Aún no hay datos fiscales. Agrégalos cuando un papá pida factura.'}</div>`}`;
+}
+
+/* ---------- Resumen del mes (RESICO) ---------- */
+function fxResumen(){
+  const ym = S.factYm, y = ym.slice(0,4);
+  const list = cobrosDe(ym).filter(c => c.monto && !c.cancelada);
+  let tot = 0, base = 0, iva = 0;
+  list.forEach(c => { const d = desglose(c.monto); tot += c.monto; base += d.base; iva += d.iva; });
+  const invInd = vigentes().filter(i => i.kind!=='global' && (i.fecha||'').slice(0,7) === ym);
+  const invGlo = vigentes().filter(i => i.kind==='global' && i.ym === ym);
+  const inv = [...invInd, ...invGlo];
+  const gloOtroMes = invGlo.filter(i => (i.fecha||'').slice(0,7) !== ym);
+  const sub = l => l.reduce((s,i) => s + (i.subtotal||0), 0), ivs = l => l.reduce((s,i) => s + (i.iva||0), 0);
+  const factBase = sub(inv), factIva = ivs(inv);
+  const sinFactura = list.filter(c => ['porFacturar','paraGlobal','dup'].includes(cobroEstado(c).k));
+  const tasa = tasaResico(base);
+  const isr = tasa===null ? null : Math.round(base * tasa / 100);
+  const mes = S.fcfg.meses[ym] || {};
+  const acred = cents(mes.ivaAcred);
+  const ivaNeto = iva - acred;
+  let anual = 0; allCobros().forEach(c => { if (c.fecha.slice(0,4)===y && c.monto && !c.cancelada) anual += desglose(c.monto).base; });
+  const pct = Math.round(anual * 1000 / FX_LIMITE_ANUAL) / 10;
+  const due = dueDate(ym);
+  const row = (k, v, cls='') => `<dt>${k}</dt><dd class="${cls}">${v}</dd>`;
+  return `<div class="grid2" style="align-items:start">
+    <div class="panel stack"><h3>Lo que cobraste en ${ymLabel(ym)}</h3>
+      <dl class="kv">${row('Cobrado (con IVA)', money(tot))}${row('Ingresos sin IVA', `<b>${money(base)}</b>`)}${row('IVA cobrado 16%', money(iva))}${row('Pagos', list.length)}</dl>
+      ${sinFactura.length ? `<div class="note bad">${sinFactura.length} pago(s) del mes aún no están amparados por una factura. En RESICO el ISR se calcula sobre ingresos amparados por factura (art. 113-E LISR): factúralos o inclúyelos en la global.</div>` : list.length ? '<div class="note ok">Todos los pagos del mes están amparados por una factura.</div>' : ''}
+    </div>
+    <div class="panel stack"><h3>Facturas de ${ymLabel(ym)}</h3>
+      <dl class="kv">${row('Individuales (con fecha del mes)', `${invInd.length} · ${money(sub(invInd))} sin IVA`)}${row('Global del mes', `${invGlo.length} · ${money(sub(invGlo))} sin IVA`)}${row('Total facturado sin IVA', `<b>${money(factBase)}</b>`)}${row('IVA facturado', money(factIva))}</dl>
+      ${factBase !== base ? `<div class="note warn">Lo facturado (${money(factBase)}) no coincide con lo cobrado en el mes (${money(base)}). Revisa qué pagos faltan por facturar o si alguna factura individual salió con fecha de otro mes: el portal del SAT precarga las facturas por su fecha, y en RESICO el ingreso se declara en el mes en que se cobró.</div>` : ''}
+      ${gloOtroMes.length ? `<div class="note warn">La factura global de este mes tiene fecha de ${ymLabel(gloOtroMes[0].fecha.slice(0,7))}. Revisa en qué mes la precarga el portal y declara los ingresos en ${ymLabel(ym)}, que es cuando se cobraron.</div>` : ''}
+    </div>
+    <div class="panel stack"><h3>Estimado para la declaración</h3>
+      <dl class="kv">
+        ${row('ISR RESICO', tasa===null ? 'Fuera de las tasas de RESICO' : `${money(isr)} <span class="small muted">(${money(base)} × ${tasa.toFixed(2)}%)</span>`)}
+        ${row('IVA cobrado', money(iva))}
+        ${row('IVA de tus gastos', `<input type="number" id="fx-acred" data-ym="${ym}" min="0" step="0.01" value="${mes.ivaAcred ?? ''}" style="max-width:140px" placeholder="0.00">`)}
+        ${row(ivaNeto >= 0 ? 'IVA a pagar' : 'IVA a favor', `<b>${money(Math.abs(ivaNeto))}</b>`)}
+        ${row('Fecha límite', fmtDY(due))}
+      </dl>
+      <p class="small muted" style="margin:0">Estimado con tus registros. El cálculo oficial lo hace el portal del SAT con las facturas. “IVA de tus gastos”: el IVA de facturas de gastos del negocio pagados en el mes (por ejemplo, la renta del local). La fecha límite no considera días festivos.</p>
+      <div class="row">${mes.declarada ? `<span class="chip conf">Declarada el ${fmtDY(mes.declarada)}</span><button class="btn sm ghost" data-act="fxdecl" data-ym="${ym}" data-v="0">Desmarcar</button>` : `<button class="btn" data-act="fxdecl" data-ym="${ym}" data-v="1">Marcar como declarada</button>`}</div>
+    </div>
+    <div class="panel stack"><h3>Límite anual de RESICO ${y}</h3>
+      <dl class="kv">${row('Ingresos sin IVA en el año', money(anual))}${row('Límite', money(FX_LIMITE_ANUAL))}${row('Usado', pct + '%', pct>=90?'err':'')}</dl>
+      <div style="height:10px;background:var(--surface-2);border-radius:99px;overflow:hidden"><div style="height:100%;width:${Math.min(100,pct)}%;background:${pct>=90?'var(--bad)':pct>=75?'var(--warn)':'var(--ok)'}"></div></div>
+      <p class="small muted" style="margin:0">Solo cuenta lo registrado en esta agenda. Si Viridiana tiene otros ingresos de su actividad, también suman al límite.</p>
+    </div></div>`;
+}
+
+/* ---------- Configuración ---------- */
+function fxConfig(){
+  const c = S.fcfg, e = c.emisor;
+  const gc = hasRepo() ? S.db.gc : null;
+  return `<div class="grid2" style="align-items:start">
+    <form class="panel stack" id="fx-cfg" novalidate>
+      <h3>Datos del emisor (quien factura)</h3>
+      <p class="small muted" style="margin:0">Cópialos de la Constancia de Situación Fiscal de quien emite las facturas. Se guardan en el repositorio privado, no en la página pública.</p>
+      <div class="grid2">
+        <div class="field"><label for="fx-e-rfc">RFC</label><input id="fx-e-rfc" type="text" value="${esc(e.rfc)}" autocomplete="off" style="text-transform:uppercase"></div>
+        <div class="field"><label for="fx-e-cp">Código postal (lugar de expedición)</label><input id="fx-e-cp" type="text" inputmode="numeric" maxlength="5" value="${esc(e.cp)}"></div>
+      </div>
+      <div class="field"><label for="fx-e-nom">Nombre completo</label><input id="fx-e-nom" type="text" value="${esc(e.nombre)}"></div>
+      <div class="field"><label for="fx-e-reg">Régimen fiscal</label><select id="fx-e-reg">${['626','612'].map(k => `<option value="${k}" ${e.regimen===k?'selected':''}>${k} ${FX_REGIMENES[k]}</option>`).join('')}</select></div>
+      <h3>Concepto de las facturas individuales</h3>
+      <div class="grid2">
+        <div class="field"><label for="fx-clave">Clave de producto o servicio</label><input id="fx-clave" type="text" inputmode="numeric" maxlength="8" value="${esc(c.claveProdServ)}" placeholder="8 dígitos"></div>
+        <div class="field"><label for="fx-uni">Clave de unidad</label><input id="fx-uni" type="text" value="${esc(c.claveUnidad)}"></div>
+        <div class="field"><label for="fx-serie">Serie (opcional)</label><input id="fx-serie" type="text" maxlength="10" value="${esc(c.serie)}"></div>
+      </div>
+      <div class="note small">La clave de producto la eliges tú una vez: en el facturador del SAT, en el campo de clave de producto o servicio, busca “regularización”, “tutoría” o “enseñanza” y elige la que describa el servicio; si dudas, confírmala con tu contador. E48 es “Unidad de servicio”.</div>
+      <div class="field"><label for="fx-ctpl">Descripción del concepto</label><input id="fx-ctpl" type="text" value="${esc(c.conceptoTpl)}"><span class="small muted">Puedes usar {plan}, {alumno} y {periodo}.</span></div>
+      <h3>Mensajes</h3>
+      <div class="field"><label for="fx-tcorreo">Correo con la factura</label><textarea id="fx-tcorreo" style="min-height:140px">${esc(c.tplCorreo)}</textarea><span class="small muted">Puedes usar {tutor}, {alumno}, {folio}, {concepto}, {total} y {uuid}.</span></div>
+      <div class="field"><label for="fx-twa">WhatsApp con la factura</label><textarea id="fx-twa">${esc(c.tplWa)}</textarea></div>
+      <div class="field"><label for="fx-tdatos">WhatsApp para pedir datos fiscales</label><textarea id="fx-tdatos">${esc(c.tplDatos)}</textarea></div>
+      <div class="err" id="fx-cfg-err" role="alert"></div>
+      <button class="btn primary" type="submit">Guardar configuración</button>
+    </form>
+    <div class="stack">
+      <div class="panel stack"><h3>Envío de facturas por correo</h3>
+        ${gc ? `<p class="small" style="margin:0">El correo sale con la cuenta configurada en los secretos de GitHub, la misma de los respaldos. Para que salga desde <b>contacto@impulsoacademico.mx</b>, pon en los secretos los datos de esa cuenta que te da tu hosting:</p>
+        <dl class="kv small"><dt>SMTP_HOST</dt><dd>El servidor de correo saliente (SMTP) de tu hosting</dd><dt>SMTP_PORT</dt><dd>465 (SSL) o 587 (STARTTLS), según tu hosting</dd><dt>SMTP_USER</dt><dd>contacto@impulsoacademico.mx</dd><dt>SMTP_PASS</dt><dd>La contraseña de ese correo</dd></dl>
+        <p class="small muted" style="margin:0">Opcional: FACT_BCC (una copia oculta de cada factura enviada, por ejemplo al mismo contacto@ para archivo).</p>
+        <div class="row"><button class="btn primary" data-act="ghinstall">Instalar / actualizar envío por correo</button><a class="btn" href="${esc(`https://github.com/${gc.owner}/${gc.repo}/settings/secrets/actions`)}" target="_blank" rel="noopener">Secretos del correo</a><a class="btn" href="${esc(`https://github.com/${gc.owner}/${gc.repo}/actions/workflows/enviar-factura.yml`)}" target="_blank" rel="noopener">Ver envíos</a></div>`
+        : '<div class="note warn">Conecta GitHub en Ajustes para guardar los archivos y enviarlos por correo.</div>'}
+      </div>
+      <form class="panel stack" id="fx-pin-chg" novalidate><h3>Cambiar PIN de facturación</h3>
+        <div class="field"><label for="fx-pc-cur">PIN actual</label><input id="fx-pc-cur" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+        <div class="field"><label for="fx-pc-new">PIN nuevo (6 dígitos)</label><input id="fx-pc-new" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+        <div class="err" id="fx-pc-err" role="alert"></div>
+        <button class="btn" type="submit">Cambiar PIN</button></form>
+    </div></div>`;
+}
+
+/* =====================================================================
+   VENTANAS
+   ===================================================================== */
+function openFxClient(id, opts={}){
+  const c = id ? S.fiscal[id] : { rfc:'', nombre:'', cp:'', regimen:'605', uso:'S01', email:'', phone:'', studentIds: opts.studentId ? [opts.studentId] : [], csfFecha:'', notes:'' };
+  if (!c) return;
+  const s0 = opts.studentId ? stu(opts.studentId) : (c.studentIds||[])[0] ? stu(c.studentIds[0]) : null;
+  if (!id && s0){ c.phone = s0.phone || ''; }
+  const sel = new Set(c.studentIds||[]);
+  const studs = Object.values(S.students).filter(s => s.active!==false || sel.has(s.id)).sort((a,b) => a.name.localeCompare(b.name,'es'));
+  const render = () => {
+    const cur = readCli();
+    const ck = checkClient(cur);
+    $('#fxc-check').innerHTML = (ck.errs.length ? `<div class="note bad"><b>Falta corregir:</b><ul style="margin:4px 0 0;padding-left:18px">${ck.errs.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>` : '<div class="note ok">Los datos tienen el formato correcto. Aun así, cópialos tal como vienen en su constancia.</div>')
+      + (ck.warns.length ? `<div class="note warn"><ul style="margin:0;padding-left:18px">${ck.warns.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>` : '');
+  };
+  const readCli = () => ({ rfc: $('#fxc-rfc').value.trim().toUpperCase(), nombre: $('#fxc-nom').value.trim().replace(/\s+/g,' ').toUpperCase(), cp: $('#fxc-cp').value.trim(),
+    regimen: $('#fxc-reg').value, uso: $('#fxc-uso').value, email: $('#fxc-mail').value.trim(), phone: $('#fxc-tel').value.replace(/\D/g,''),
+    csfFecha: $('#fxc-csf').value, notes: $('#fxc-notes').value, studentIds: $$('[data-fxstu]').filter(x => x.checked).map(x => x.dataset.fxstu) });
+  openModal(id ? esc(c.nombre || c.rfc) : 'Nuevo: datos fiscales', `
+    <div class="note small">Cópialos de la <b>Constancia de Situación Fiscal</b> del papá o mamá (no del alumno). La factura se rechaza si el nombre, RFC, código postal o régimen no coinciden con la constancia.</div>
+    <div class="grid2">
+      <div class="field"><label for="fxc-rfc">RFC</label><input id="fxc-rfc" type="text" value="${esc(c.rfc)}" autocomplete="off" style="text-transform:uppercase" maxlength="13"></div>
+      <div class="field"><label for="fxc-cp">Código postal (de la constancia)</label><input id="fxc-cp" type="text" inputmode="numeric" maxlength="5" value="${esc(c.cp)}"></div>
+    </div>
+    <div class="field"><label for="fxc-nom">Nombre o razón social (sin “S.A. de C.V.”)</label><input id="fxc-nom" type="text" value="${esc(c.nombre)}" style="text-transform:uppercase"></div>
+    <div class="grid2">
+      <div class="field"><label for="fxc-reg">Régimen fiscal</label><select id="fxc-reg">${Object.entries(FX_REGIMENES).map(([k,l]) => `<option value="${k}" ${c.regimen===k?'selected':''}>${k} ${l}</option>`).join('')}</select></div>
+      <div class="field"><label for="fxc-uso">Uso del CFDI</label><select id="fxc-uso">${Object.entries(FX_USOS).map(([k,l]) => `<option value="${k}" ${c.uso===k?'selected':''}>${k} ${l}${k==='S01'?' (recomendado)':''}</option>`).join('')}</select></div>
+      <div class="field"><label for="fxc-mail">Correo para enviar la factura</label><input id="fxc-mail" type="email" value="${esc(c.email)}"></div>
+      <div class="field"><label for="fxc-tel">WhatsApp (10 dígitos)</label><input id="fxc-tel" type="tel" inputmode="numeric" value="${esc(c.phone)}"></div>
+      <div class="field"><label for="fxc-csf">Fecha de la constancia revisada</label><input id="fxc-csf" type="date" value="${esc(c.csfFecha)}"></div>
+    </div>
+    <div class="note small">Uso del CFDI: las clases de regularización no son colegiatura con validez oficial (no tienen RVOE), así que no son deducibles para el papá. Por eso lo recomendado es <b>S01 Sin efectos fiscales</b>. No uses D10 (colegiaturas).</div>
+    <div><div class="lbl" style="margin-bottom:6px">Alumnos a los que corresponde</div>
+      <div class="row" style="max-height:160px;overflow:auto">${studs.map(s => `<label class="person" style="cursor:pointer"><input type="checkbox" data-fxstu="${s.id}" ${sel.has(s.id)?'checked':''}> ${esc(labelOf(s))}</label>`).join('') || '<span class="small muted">No hay alumnos.</span>'}</div></div>
+    <div class="field"><label for="fxc-notes">Notas</label><textarea id="fxc-notes">${esc(c.notes||'')}</textarea></div>
+    <div id="fxc-check"></div>`,
+    `${(s0 && s0.phone) || c.phone ? waBtn(c.phone || s0.phone, fill(S.fcfg.tplDatos, { tutor: (s0 && s0.tutor) || '' }), 'Pedir datos por WhatsApp', false) : ''}
+     ${id ? `<button class="btn danger" id="fxc-del">Borrar</button>` : ''}
+     <button class="btn primary" id="fxc-save">Guardar</button>`, { wide:true });
+  render();
+  $('#m-body').addEventListener('input', render);
+  $('#m-body').addEventListener('change', render);
+  $('#fxc-save').onclick = async () => {
+    const d = readCli();
+    if (!d.rfc && !d.nombre) return toast('Escribe al menos el RFC y el nombre.', true);
+    const dup = Object.values(S.fiscal).find(x => x.rfc===d.rfc && x.id!==id);
+    if (dup && d.rfc) return toast(`Ese RFC ya está registrado (${dup.nombre}). Ábrelo y agrégale el alumno.`, true);
+    const doc = Object.assign({}, id ? S.fiscal[id] : { createdAt: new Date().toISOString() }, d, { updatedAt: new Date().toISOString() });
+    delete doc.id;
+    const fid = id || newId('fiscal');
+    if (await dbSet('fiscal', fid, doc)){
+      toast('Datos fiscales guardados');
+      if (opts.cobroId){ const cb = allCobros().find(x => x.id===opts.cobroId); if (cb) await saveCobroMeta(cb, { clientId: fid, pideFactura: true }); }
+      closeModal();
+    }
+  };
+  const del = $('#fxc-del');
+  if (del) del.onclick = () => {
+    if (vigentes().some(i => i.clientId===id)) return toast('Tiene facturas registradas: no se puede borrar.', true);
+    askConfirm('¿Borrar estos datos fiscales?', 'Borrar', async () => { if (await dbDelete('fiscal', id)){ toast('Borrado'); closeModal(); } });
+  };
+}
+
+function openFxPickClient(cobroId){
+  const c = allCobros().find(x => x.id===cobroId); if (!c) return;
+  const list = Object.values(S.fiscal).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'','es'));
+  openModal('Datos fiscales para este pago', `
+    <p class="small muted" style="margin:0">${c.studentId ? esc(labelOf(stu(c.studentId))) + ' · ' : ''}${money(c.monto)} · ${fmtDY(c.fecha)}</p>
+    ${list.length ? `<div class="stack" style="gap:6px">${list.map(f => `<button class="btn" style="justify-content:space-between" data-act="fxsetcli" data-c="${c.id}" data-f="${f.id}"><span>${esc(f.nombre||'(sin nombre)')} · ${esc(f.rfc||'')}</span>${checkClient(f).errs.length?'<span class="chip venc">Incompleto</span>':''}</button>`).join('')}</div>` : '<div class="empty">Aún no hay datos fiscales registrados.</div>'}`,
+    `<button class="btn primary" data-act="fxnewcli" data-c="${c.id}" data-s="${c.studentId||''}">+ Capturar datos nuevos</button>`);
+}
+
+function openFxCobro(id){
+  const m = id ? S.cobros[id] : { fecha: todayS(), monto:'', concepto:'', formaPago:'', studentId:'', pideFactura:false };
+  if (!m) return;
+  if (id && coverage()[id]) return toast('Este cobro ya está en una factura; para cambiarlo primero cancela la factura.', true);
+  openModal(id ? 'Editar cobro' : 'Cobro fuera de la agenda', `
+    <p class="small muted" style="margin:0">Para pagos que no se registran como reserva: inscripción, material, un curso especial. El monto es el total cobrado, con IVA incluido.</p>
+    <div class="grid2">
+      <div class="field"><label for="fxm-f">Fecha de cobro</label><input id="fxm-f" type="date" value="${esc(m.fecha)}"></div>
+      <div class="field"><label for="fxm-m">Monto cobrado (con IVA)</label><input id="fxm-m" type="number" min="0" step="0.01" value="${esc(m.monto)}"></div>
+      <div class="field"><label for="fxm-fp">Forma de pago</label><select id="fxm-fp"><option value="">— elegir —</option>${Object.entries(FX_FORMAS).map(([k,l]) => `<option value="${k}" ${m.formaPago===k?'selected':''}>${k} ${l}</option>`).join('')}</select></div>
+      <div class="field"><label for="fxm-s">Alumno (opcional)</label><select id="fxm-s"><option value="">—</option>${Object.values(S.students).sort((a,b)=>a.name.localeCompare(b.name,'es')).map(s => `<option value="${s.id}" ${m.studentId===s.id?'selected':''}>${esc(labelOf(s))}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label for="fxm-c">Concepto</label><input id="fxm-c" type="text" value="${esc(m.concepto)}" placeholder="Ej. Inscripción ciclo 2026-2027"></div>
+    <label class="row"><input type="checkbox" id="fxm-p" ${m.pideFactura?'checked':''}> Pidió factura a su nombre</label>`,
+    `${id ? '<button class="btn danger" id="fxm-del">Borrar</button>' : ''}<button class="btn primary" id="fxm-save">Guardar</button>`);
+  $('#fxm-save').onclick = async () => {
+    const monto = Number($('#fxm-m').value);
+    if (!$('#fxm-f').value) return toast('Elige la fecha de cobro.', true);
+    if (!(monto > 0)) return toast('Escribe el monto cobrado.', true);
+    if (!$('#fxm-c').value.trim()) return toast('Escribe el concepto.', true);
+    const doc = Object.assign({}, id ? S.cobros[id] : { createdAt: new Date().toISOString() }, { manual:true, fecha:$('#fxm-f').value, monto, formaPago:$('#fxm-fp').value, studentId:$('#fxm-s').value, concepto:$('#fxm-c').value.trim(), pideFactura:$('#fxm-p').checked });
+    delete doc.id;
+    if (doc.pideFactura && !doc.clientId) doc.clientId = defaultClientId(doc.studentId);
+    if (await dbSet('cobros', id || newId('cobros'), doc)){ toast('Cobro guardado'); closeModal(); }
+  };
+  const del = $('#fxm-del');
+  if (del) del.onclick = () => askConfirm('¿Borrar este cobro?', 'Borrar', async () => { if (await dbDelete('cobros', id)){ toast('Cobro borrado'); closeModal(); } });
+}
+
+/* Guía de llenado de una factura individual */
+function openFxGuide(cobroId){
+  const c = allCobros().find(x => x.id===cobroId); if (!c) return;
+  const cli = S.fiscal[c.clientId], e = S.fcfg.emisor, d = desglose(c.monto);
+  const ck = checkClient(cli), emErr = checkEmisor();
+  const blockers = [...ck.errs, ...emErr.map(x => `Configura el ${x} en Facturación → Configuración.`)];
+  if (!c.formaPago) blockers.push('Elige la forma de pago del cobro (Efectivo o Transferencia).');
+  if (!c.monto) blockers.push('El cobro tiene monto $0.');
+  const fld = (l, v, h) => fxField(l, v, h);
+  const otroMes = c.fecha.slice(0,7) !== todayS().slice(0,7);
+  openModal('Guía para facturar en el SAT', `
+    <p class="small muted" style="margin:0">${c.studentId ? esc(labelOf(stu(c.studentId))) + ' · ' : ''}cobro del ${fmtDY(c.fecha)} · ${money(c.monto)}</p>
+    ${blockers.length ? `<div class="note bad"><b>Antes de timbrar corrige:</b><ul style="margin:4px 0 0;padding-left:18px">${blockers.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>` : '<div class="note ok">Datos completos. Copia cada valor con un clic.</div>'}
+    ${ck.warns.length ? `<div class="note warn"><ul style="margin:0;padding-left:18px">${ck.warns.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+    ${otroMes ? `<div class="note warn">El cobro es de ${ymLabel(c.fecha.slice(0,7))} y hoy es ${ymLabel(todayS().slice(0,7))}. La factura saldrá con fecha de hoy y el portal la precargará en este mes; declara el ingreso en el mes en que cobraste.</div>` : ''}
+    <ol class="fx-steps">
+      <li>Entra a sat.gob.mx → Factura electrónica → Genera tu factura, con el RFC y la contraseña o e.firma de quien emite (${esc(e.rfc || 'falta el RFC del emisor')}).</li>
+      <li><b>Emisor:</b><div class="fx-grid">${fld('Régimen fiscal', e.regimen + ' ' + (FX_REGIMENES[e.regimen]||''))}${fld('Lugar de expedición (CP)', e.cp)}${fld('Tipo de factura', 'Ingreso')}</div></li>
+      <li><b>Receptor</b> (cópialo exacto):<div class="fx-grid">${fld('RFC', cli?.rfc)}${fld('Nombre o razón social', cli?.nombre)}${fld('Código postal', cli?.cp)}${fld('Régimen fiscal', cli ? cli.regimen + ' ' + (FX_REGIMENES[cli.regimen]||'') : '')}${fld('Uso del CFDI', cli ? cli.uso + ' ' + (FX_USOS[cli.uso]||'') : '')}</div></li>
+      <li><b>Comprobante:</b><div class="fx-grid">${fld('Moneda', 'MXN')}${fld('Exportación', '01 No aplica')}${fld('Método de pago', 'PUE Pago en una sola exhibición')}${fld('Forma de pago', c.formaPago ? c.formaPago + ' ' + FX_FORMAS[c.formaPago] : '')}${S.fcfg.serie ? fld('Serie', S.fcfg.serie, 'Opcional') : ''}</div></li>
+      <li><b>Concepto:</b><div class="fx-grid">${fld('Clave de producto o servicio', S.fcfg.claveProdServ)}${fld('Clave de unidad', S.fcfg.claveUnidad)}${fld('Cantidad', '1')}${fld('Descripción', c.concepto)}${fld('Valor unitario (sin IVA)', dec2(d.base))}${fld('Objeto de impuesto', '02 Sí objeto de impuesto')}${fld('Impuesto', 'IVA · Traslado · Tasa 16%')}</div></li>
+      <li><b>Antes de sellar, revisa en la vista previa:</b> subtotal ${money(d.base)}, IVA ${money(d.iva)}, <b>total ${money(d.total)}</b> (lo que pagó el papá).${d.dif ? ` <span class="err">Con este precio no hay un valor sin IVA que dé el total exacto: el total quedará en ${money(d.total)}.</span>` : ''}</li>
+      <li>Sella la factura, descarga el <b>XML</b> y el <b>PDF</b>, y regístralos aquí. La app revisa que el XML coincida con estos datos.</li>
+    </ol>`,
+    `${cli ? `<button class="btn" data-act="fxcli" data-id="${cli.id}">Editar datos fiscales</button>` : ''}<button class="btn primary" data-act="fxreg" data-kind="individual" data-ids="${c.id}">Ya la timbré: registrar</button>`, { wide:true });
+}
+
+/* Registrar una factura timbrada: lee el XML, compara y guarda */
+function openFxRegister(kind, ids, ym){
+  const st = { x:null, xmlBuf:null, pdfBuf:null, cmp:null, ids: ids.filter(Boolean) };
+  const pending = kind==='individual' && !st.ids.length;
+  const exp = () => st.ids.length ? expectedFor(kind, st.ids, ym) : { kind, list:[], total:0, base:0, iva:0, forma:'', receptor:null, ym, emisorRfc:S.fcfg.emisor.rfc };
+  const render = () => {
+    const ex = exp();
+    let out = '';
+    if (pending){
+      const libres = allCobros().filter(c => c.monto && !coverage()[c.id]).slice(-60).reverse();
+      out += `<div class="field"><label for="fxr-cobro">Pago que ampara esta factura</label><select id="fxr-cobro"><option value="">— elegir —</option>${libres.map(c => `<option value="${c.id}" ${st.ids[0]===c.id?'selected':''}>${fmtDY(c.fecha)} · ${c.studentId?esc(labelOf(stu(c.studentId))):'Sin alumno'} · ${money(c.monto)}</option>`).join('')}</select></div>`;
+    }
+    out += `<div class="note small">${kind==='global' ? `Factura global de ${ymLabel(ym)} · ${ex.list.length} pagos · total esperado ${money(ex.total)}` : ex.list.length ? `Esperado: ${esc(ex.receptor?.nombre||'sin datos fiscales')} · ${esc(ex.receptor?.rfc||'')} · total ${money(ex.total)}` : 'Elige el pago que ampara la factura.'}</div>
+      <div class="grid2"><div class="field"><label for="fxr-xml">XML timbrado (obligatorio)</label><input id="fxr-xml" type="file" accept=".xml,text/xml,application/xml">${st.xmlName?`<span class="small">Cargado: ${esc(st.xmlName)}</span>`:''}</div>
+      <div class="field"><label for="fxr-pdf">PDF de la factura</label><input id="fxr-pdf" type="file" accept=".pdf,application/pdf">${st.pdfName?`<span class="small">Cargado: ${esc(st.pdfName)}</span>`:''}</div></div>`;
+    if (st.x){
+      const x = st.x, cmp = st.cmp;
+      out += `<dl class="kv"><dt>Folio fiscal</dt><dd>${esc(x.uuid)}</dd><dt>Serie y folio</dt><dd>${esc(x.serie+x.folio)||'—'}</dd><dt>Fecha</dt><dd>${esc(x.fecha.replace('T',' '))}</dd><dt>Receptor</dt><dd>${esc(x.receptor.nombre)} · ${esc(x.receptor.rfc)}</dd><dt>Subtotal · IVA · Total</dt><dd>${money(x.subtotal)} · ${money(x.iva)} · <b>${money(x.total)}</b></dd></dl>
+        ${cmp.errs.length ? `<div class="note bad"><b>La factura no coincide con lo esperado:</b><ul style="margin:4px 0 0;padding-left:18px">${cmp.errs.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
+          <p style="margin:6px 0 0">No la envíes al papá. Regístrala para tener el control y después, en el portal del SAT, cancélala con motivo <b>01</b> (con relación) y emite la correcta; o con motivo <b>02</b> si aún no la recibe y la correcta se emite después.</p></div>` : '<div class="note ok">El XML coincide con los datos esperados.</div>'}
+        ${cmp.warns.length ? `<div class="note warn"><ul style="margin:0;padding-left:18px">${cmp.warns.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+        ${!st.pdfBuf ? '<div class="note warn">Falta el PDF. Puedes guardar sin él, pero el papá lo necesita para leer su factura.</div>' : ''}`;
+    }
+    $('#m-body').innerHTML = out;
+    $('#m-foot').innerHTML = `<button class="btn primary" id="fxr-save" ${st.x && st.ids.length?'':'disabled'}>Guardar factura</button>`;
+    const sc = $('#fxr-cobro'); if (sc) sc.onchange = () => { st.ids = sc.value ? [sc.value] : []; if (st.x) st.cmp = compareCfdi(st.x, exp()); render(); };
+    $('#fxr-xml').onchange = async ev => {
+      const f = ev.target.files[0]; if (!f) return;
+      if (f.size > 2e6) return toast('El XML pesa más de 2 MB: no parece una factura.', true);
+      try { const buf = await f.arrayBuffer(); const x = parseCfdi(new TextDecoder().decode(buf)); st.x = x; st.xmlBuf = buf; st.xmlName = f.name; st.cmp = compareCfdi(x, exp()); }
+      catch(err){ st.x = null; st.xmlName = ''; toast(err.message, true); }
+      render();
+    };
+    $('#fxr-pdf').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; if (f.size > 8e6) return toast('El PDF pesa más de 8 MB.', true);
+      const buf = await f.arrayBuffer(); if (new TextDecoder().decode(buf.slice(0,5)) !== '%PDF-') return toast('El archivo no es un PDF.', true);
+      st.pdfBuf = buf; st.pdfName = f.name; render(); };
+    $('#fxr-save').onclick = save;
+  };
+  async function save(){
+    const x = st.x, ex = exp();
+    if (!x || !st.ids.length) return;
+    if (Object.values(S.invoices).some(i => i.uuid===x.uuid)) return toast('Esa factura ya está registrada.', true);
+    const btn = $('#fxr-save'); btn.disabled = true; btn.textContent = 'Guardando…';
+    const yy = x.fecha.slice(0,4), mm = x.fecha.slice(5,7);
+    const dir = `facturas/${(x.emisor.rfc || 'EMISOR').replace(/[^A-Z0-9&Ñ]/gi,'')}/${yy}/${mm}`;
+    const doc = { kind, status:'vigente', uuid:x.uuid, serie:x.serie, folio:x.folio, fecha:x.fecha, fechaTimbrado:x.fechaTimbrado, subtotal:x.subtotal, iva:x.iva, total:x.total,
+      forma:x.forma, metodo:x.metodo, emisorRfc:x.emisor.rfc, receptor:x.receptor, cobroIds: st.ids, clientId: kind==='individual' && ex.list[0] ? ex.list[0].clientId : '',
+      ym: kind==='global' ? ym : (ex.list[0] ? ex.list[0].fecha.slice(0,7) : x.fecha.slice(0,7)), concepto: x.conceptos.length===1 ? x.conceptos[0].desc : `${x.conceptos.length} conceptos`,
+      checks: st.cmp, envios: [], createdAt: new Date().toISOString(), xmlPath:'', pdfPath:'' };
+    if (hasRepo()){
+      try {
+        await ghPutFile(S.db.gc, `${dir}/${x.uuid}.xml`, st.xmlBuf, `Factura ${x.uuid}: XML`); doc.xmlPath = `${dir}/${x.uuid}.xml`;
+        if (st.pdfBuf){ await ghPutFile(S.db.gc, `${dir}/${x.uuid}.pdf`, st.pdfBuf, `Factura ${x.uuid}: PDF`); doc.pdfPath = `${dir}/${x.uuid}.pdf`; }
+      } catch(err){ btn.disabled = false; btn.textContent = 'Guardar factura'; return toast('No se pudieron subir los archivos: ' + err.message, true); }
+    }
+    const nid = newId('invoices');
+    if (await dbSet('invoices', nid, doc)){
+      S.fxVer = (S.fxVer||0) + 1;
+      toast(st.cmp.errs.length ? 'Factura registrada con errores: revisa qué hacer.' : 'Factura registrada');
+      openFxInvoice(nid, doc);
+    } else { btn.disabled = false; btn.textContent = 'Guardar factura'; }
+  }
+  openModal(kind==='global' ? 'Registrar factura global' : 'Registrar factura timbrada', '', '<span></span>', { wide:true });
+  render();
+}
+
+function invCtx(inv){
+  const cli = S.fiscal[inv.clientId];
+  const c0 = allCobros().find(c => c.id===(inv.cobroIds||[])[0]);
+  const s = c0 && c0.studentId ? stu(c0.studentId) : null;
+  return { tutor: (s && s.tutor) || (cli && cli.nombre) || '', alumno: s ? s.name : '', folio: (inv.serie||'') + (inv.folio||'') || inv.uuid.slice(0,8), concepto: inv.concepto || '', total: money(inv.total), uuid: inv.uuid };
+}
+function openFxInvoice(id, fallback){
+  const render = () => {
+    const i = S.invoices[id] || fallback; if (!i) return closeModal();
+    const cli = S.fiscal[i.clientId];
+    const cobs = (i.cobroIds||[]).map(cid => allCobros().find(c => c.id===cid)).filter(Boolean);
+    const ck = i.checks || { errs:[], warns:[] };
+    const sust = i.cancel && i.cancel.sustitutaUuid ? Object.values(S.invoices).find(x => x.uuid===i.cancel.sustitutaUuid) : null;
+    const rows = [
+      ['Estado', i.status==='cancelada' ? `<span class="chip cancel">Cancelada</span> ${i.cancel ? `motivo ${esc(i.cancel.motivo)} · ${fmtDY(i.cancel.at.slice(0,10))}` : ''}` : (ck.errs.length ? '<span class="chip venc">Vigente con errores</span>' : '<span class="chip conf">Vigente</span>')],
+      ['Tipo', i.kind==='global' ? `Global de ${ymLabel(i.ym)}` : 'Individual'],
+      ['Folio fiscal (UUID)', fxCopy(i.uuid)],
+      ['Serie y folio', esc((i.serie||'')+(i.folio||'')) || '—'],
+      ['Fecha', esc((i.fecha||'').replace('T',' '))],
+      ['Receptor', `${esc(i.receptor?.nombre||'')} · ${esc(i.receptor?.rfc||'')}${cli?` <button class="btn sm ghost" data-act="fxcli" data-id="${cli.id}">Datos</button>`:''}`],
+      ['Importe', `${money(i.subtotal)} + IVA ${money(i.iva)} = <b>${money(i.total)}</b>`],
+      ['Forma de pago', esc(i.forma ? i.forma + ' ' + (FX_FORMAS[i.forma]||'') : '')],
+      ['Pagos que ampara', cobs.map(c => `${fmtDY(c.fecha)} ${c.studentId?esc(stu(c.studentId).name):''} ${money(c.monto)}`).join('<br>') || '—']
+    ];
+    if (sust) rows.push(['Sustituida por', `<button class="btn sm" data-act="fxinv" data-id="${sust.id}">${esc(sust.uuid.slice(0,8))}…</button>`]);
+    if ((i.envios||[]).length) rows.push(['Envíos', i.envios.map(e => `${e.via==='correo'?'Correo a '+esc(e.to):'WhatsApp'} · ${fmtDT(new Date(e.at))}`).join('<br>')]);
+    $('#m-body').innerHTML = `<dl class="kv">${rows.map(([k,v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+      ${ck.errs.length && i.status!=='cancelada' ? `<div class="note bad"><b>Errores detectados al registrar:</b><ul style="margin:4px 0 0;padding-left:18px">${ck.errs.map(x=>`<li>${esc(x)}</li>`).join('')}</ul><p style="margin:6px 0 0">Cancélala en el portal del SAT (Factura electrónica → Cancela) con motivo 01 y emite la correcta; luego márcala aquí como cancelada.</p></div>` : ''}
+      ${ck.warns.length && i.status!=='cancelada' ? `<div class="note warn"><ul style="margin:0;padding-left:18px">${ck.warns.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+      <div class="row">${i.xmlPath ? `<button class="btn" data-act="fxdl" data-id="${i.id}" data-ext="xml">Descargar XML</button>` : '<span class="small muted">XML no guardado en el repositorio.</span>'}${i.pdfPath ? `<button class="btn" data-act="fxdl" data-id="${i.id}" data-ext="pdf">Descargar PDF</button>` : `<button class="btn sm" data-act="fxaddpdf" data-id="${i.id}" ${hasRepo()?'':'disabled'}>Agregar PDF</button>`}</div>`;
+    const canSend = i.status!=='cancelada' && i.kind!=='global';
+    $('#m-foot').innerHTML = `${i.status!=='cancelada' ? `<button class="btn danger" data-act="fxcancel" data-id="${i.id}">Marcar como cancelada</button>` : ''}
+      ${canSend ? `<button class="btn wa" data-act="fxwa" data-id="${i.id}">Enviar por WhatsApp</button><button class="btn primary" data-act="fxmail" data-id="${i.id}" ${i.xmlPath && hasRepo()?'':'disabled'}>Enviar por correo</button>` : ''}`;
+  };
+  openModal('Factura', '', '<span></span>', { wide:true, refresh: render });
+  render();
+  /* Descarga anticipada de los archivos para poder compartirlos por WhatsApp desde el celular sin esperas */
+  const inv0 = S.invoices[id] || fallback;
+  if (inv0 && hasRepo() && inv0.kind!=='global' && !S.fxFiles[inv0.id]){
+    const p = {};
+    Promise.all([inv0.pdfPath ? ghGetFile(S.db.gc, inv0.pdfPath).then(b => p.pdf = b) : null, inv0.xmlPath ? ghGetFile(S.db.gc, inv0.xmlPath).then(b => p.xml = b) : null])
+      .then(() => { S.fxFiles[inv0.id] = p; }).catch(() => {});
+  }
+}
+
+function openFxCancel(id){
+  const i = S.invoices[id]; if (!i) return;
+  openModal('Marcar factura como cancelada', `
+    <div class="note">Primero cancélala en el portal del SAT (Factura electrónica → Cancela tu factura). Aquí solo se registra para que los pagos vuelvan a quedar pendientes de facturar.</div>
+    <div class="field"><label for="fxx-m">Motivo de cancelación usado en el SAT</label><select id="fxx-m">
+      <option value="01">01 Comprobante emitido con errores con relación (se sustituye por otra)</option>
+      <option value="02">02 Comprobante emitido con errores sin relación</option>
+      <option value="03">03 No se llevó a cabo la operación</option>
+      <option value="04" ${i.kind==='global'?'selected':''}>04 Operación nominativa relacionada en una factura global</option></select></div>
+    <div class="field"><label for="fxx-u">Folio fiscal de la factura que la sustituye (motivo 01)</label><input id="fxx-u" type="text" placeholder="UUID" style="text-transform:uppercase"></div>
+    <div class="field"><label for="fxx-n">Nota</label><textarea id="fxx-n"></textarea></div>
+    <p class="small muted" style="margin:0">Según las preguntas frecuentes de cancelación del SAT, no necesitan aceptación del receptor, entre otras, las facturas de hasta $1,000 y las de público en general. En los demás casos el papá tiene 3 días hábiles para aceptar o rechazar en el portal; revisa que el estado cambie a “Cancelado”.</p>`,
+    `<button class="btn danger" id="fxx-ok">Marcar como cancelada</button>`);
+  $('#fxx-ok').onclick = async () => {
+    const motivo = $('#fxx-m').value, u = $('#fxx-u').value.trim().toUpperCase();
+    if (motivo==='01' && !/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/.test(u)) return toast('Con motivo 01 escribe el folio fiscal (UUID) de la factura que la sustituye.', true);
+    if (await dbUpdate('invoices', id, { status:'cancelada', cancel:{ motivo, sustitutaUuid:u, nota:$('#fxx-n').value, at:new Date().toISOString() } })){
+      S.fxVer = (S.fxVer||0) + 1; toast('Factura marcada como cancelada. Sus pagos vuelven a estar pendientes.'); closeModal();
+    }
+  };
+}
+
+/* El papá pide factura de un pago que ya está en la global */
+function openFxNominal(cobroId){
+  const c = allCobros().find(x => x.id===cobroId); if (!c) return;
+  const g = (coverage()[c.id]||[])[0];
+  openModal('Factura de un pago que ya está en la global', `
+    <p style="margin:0">Este pago ya está en la factura global ${g ? esc((g.serie||'')+(g.folio||'')) + ' de ' + esc(ymLabel(g.ym)) : ''}. Para darle factura a su nombre sin facturarlo dos veces, el SAT indica este orden (preguntas frecuentes de cancelación, motivo 04):</p>
+    <ol class="fx-steps"><li>Cancela la factura global en el portal con motivo <b>04 Operación nominativa relacionada en una factura global</b>.</li>
+      <li>Vuelve a emitir la global del mismo mes <b>sin</b> este pago.</li>
+      <li>Emite la factura a nombre del papá.</li></ol>
+    <p class="small muted" style="margin:0">Al pulsar “Empezar”, la app marca la global como cancelada (motivo 04), marca este pago como “pidió factura” y te lleva a la nueva global y a la guía de la factura individual.</p>`,
+    `<button class="btn primary" id="fxn-ok">Empezar</button>`);
+  $('#fxn-ok').onclick = async () => {
+    if (g && !(await dbUpdate('invoices', g.id, { status:'cancelada', cancel:{ motivo:'04', sustitutaUuid:'', nota:'Pago facturado a nombre del cliente', at:new Date().toISOString() } }))) return;
+    await saveCobroMeta(c, { pideFactura:true });
+    S.fxVer = (S.fxVer||0) + 1;
+    closeModal(); S.factYm = c.fecha.slice(0,7); S.factTab = 'cobros'; renderMain();
+    toast('Listo: emite la nueva global del mes y la factura a su nombre.');
+  };
+}
+
+/* ---------- envíos ---------- */
+async function fxSendMail(id){
+  const i = S.invoices[id]; if (!i) return;
+  const cli = S.fiscal[i.clientId];
+  const ctx = invCtx(i);
+  openModal('Enviar factura por correo', `
+    <div class="field"><label for="fxs-to">Para</label><input id="fxs-to" type="email" value="${esc(cli?.email||'')}"></div>
+    <div class="field"><label for="fxs-sub">Asunto</label><input id="fxs-sub" type="text" value="${esc(`Factura ${ctx.folio} · Impulso Académico`)}"></div>
+    <div class="field"><label for="fxs-msg">Mensaje</label><textarea id="fxs-msg" style="min-height:180px">${esc(fill(S.fcfg.tplCorreo, ctx))}</textarea></div>
+    <p class="small muted" style="margin:0">Se adjuntan el XML${i.pdfPath?' y el PDF':''}. El correo sale desde la cuenta configurada en GitHub y llega en 1 a 3 minutos; si no llega, revisa “Ver envíos” en Facturación → Configuración.</p>`,
+    `<button class="btn primary" id="fxs-ok">Enviar</button>`);
+  $('#fxs-ok').onclick = async () => {
+    const to = $('#fxs-to').value.trim();
+    if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(to)) return toast('Escribe un correo válido (uno solo).', true);
+    const btn = $('#fxs-ok'); btn.disabled = true; btn.textContent = 'Enviando…';
+    const r = await ghDispatch(S.db.gc, 'enviar-factura.yml', { para: to, xml: i.xmlPath, pdf: i.pdfPath || '', asunto: $('#fxs-sub').value.trim().slice(0,200), mensaje: $('#fxs-msg').value.slice(0,6000) }).catch(() => ({ ok:false, msg:'Sin conexión con GitHub.' }));
+    if (!r.ok){ btn.disabled = false; btn.textContent = 'Enviar'; return toast(r.msg, true); }
+    await dbUpdate('invoices', id, { envios: [...(i.envios||[]), { via:'correo', to, at:new Date().toISOString() }] });
+    if (cli && !cli.email) await dbUpdate('fiscal', cli.id, { email: to });
+    toast('Envío solicitado. Llega en 1 a 3 minutos.'); openFxInvoice(id);
+  };
+}
+async function fxSendWa(id){
+  const i = S.invoices[id]; if (!i) return;
+  const cli = S.fiscal[i.clientId];
+  const c0 = allCobros().find(c => c.id===(i.cobroIds||[])[0]);
+  const phone = (cli && cli.phone) || (c0 && c0.studentId ? stu(c0.studentId).phone : '');
+  const text = fill(S.fcfg.tplWa, invCtx(i));
+  let files = [];
+  if (hasRepo()){
+    try {
+      const cache = S.fxFiles[i.id] || {};
+      const pdf = i.pdfPath ? (cache.pdf || await ghGetFile(S.db.gc, i.pdfPath)) : null;
+      const xml = i.xmlPath ? (cache.xml || await ghGetFile(S.db.gc, i.xmlPath)) : null;
+      if (pdf) files.push(new File([pdf], invFileName(i,'pdf'), { type:'application/pdf' }));
+      if (xml) files.push(new File([xml], invFileName(i,'xml'), { type:'text/xml' }));
+    } catch(e){ toast('No se pudieron descargar los archivos de GitHub.', true); }
+  }
+  let via = '';
+  if (files.length && navigator.canShare && navigator.canShare({ files })){
+    try { await navigator.share({ files, text }); via = 'share'; } catch(e){ if (e && e.name==='AbortError') return; }
+  }
+  if (!via){
+    files.forEach(f => saveBlob(f.name, f));
+    window.open(waLink(phone, text), '_blank', 'noopener');
+    if (files.length) toast('Se descargaron el PDF y el XML: adjúntalos en el chat de WhatsApp que se abrió.');
+  }
+  await dbUpdate('invoices', id, { envios: [...(i.envios||[]), { via:'whatsapp', to: phone, at:new Date().toISOString() }] });
+}
+function fxCsv(){
+  const q = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+  const L = [['Fecha','Serie','Folio','UUID','Tipo','Mes global','Receptor','RFC receptor','Subtotal','IVA','Total','Forma de pago','Estado','Motivo cancelación','Envíos'].map(q).join(',')];
+  Object.values(S.invoices).sort((a,b) => (a.fecha||'') < (b.fecha||'') ? -1 : 1).forEach(i => L.push([ (i.fecha||'').slice(0,10), i.serie, i.folio, i.uuid, i.kind==='global'?'Global':'Individual', i.kind==='global'?i.ym:'', i.receptor?.nombre, i.receptor?.rfc,
+    dec2(i.subtotal||0), dec2(i.iva||0), dec2(i.total||0), i.forma, i.status==='cancelada'?'Cancelada':'Vigente', i.cancel?.motivo||'', (i.envios||[]).length ].map(q).join(',')));
+  saveBlob(`facturas-impulso-${todayS()}.csv`, new Blob(['﻿' + L.join('\r\n')], { type:'text/csv;charset=utf-8' }));
+}
+
+/* =====================================================================
+   ACCIONES Y EVENTOS DE FACTURACIÓN
+   ===================================================================== */
+Object.assign(ACT, {
+  fxtab: el => { S.factTab = el.dataset.t; renderMain(); },
+  fxym: el => { const n = +el.dataset.n; S.factYm = n > 0 ? ymNext(S.factYm) : ymPrev(S.factYm); renderMain(); },
+  fxlock: () => { S.factUnlock = false; renderMain(); },
+  fxcopy: el => copyText(el.dataset.v),
+  fxguide: el => openFxGuide(el.dataset.id),
+  fxreg: el => openFxRegister(el.dataset.kind, (el.dataset.ids||'').split(','), el.dataset.ym || S.factYm),
+  fxinv: el => openFxInvoice(el.dataset.id),
+  fxinvf: el => { S.fxInvFilter = el.dataset.f; renderMain(); },
+  fxcli: el => openFxClient(el.dataset.id || null, { studentId: el.dataset.stu }),
+  fxpickcli: el => openFxPickClient(el.dataset.id),
+  fxnewcli: el => openFxClient(null, { studentId: el.dataset.s || undefined, cobroId: el.dataset.c }),
+  fxsetcli: async el => { const c = allCobros().find(x => x.id===el.dataset.c); if (c && await saveCobroMeta(c, { clientId: el.dataset.f, pideFactura:true })){ closeModal(); toast('Datos fiscales asignados'); } },
+  fxcobro: el => openFxCobro(el.dataset.id || null),
+  fxnominal: el => openFxNominal(el.dataset.id),
+  fxnotas: async () => { const list = cobrosDe(S.factYm).filter(c => c.monto && !c.cancelada && cobroEstado(c).k==='paraGlobal'); const n = await ensureNotas(list); toast(n ? `${n} número(s) de nota asignados` : 'Ya tenían número'); },
+  fxcancel: el => openFxCancel(el.dataset.id),
+  fxmail: el => fxSendMail(el.dataset.id),
+  fxwa: el => fxSendWa(el.dataset.id),
+  fxcsv: () => fxCsv(),
+  fxdl: async el => { const i = S.invoices[el.dataset.id]; if (!i) return; const ext = el.dataset.ext;
+    try { const buf = await ghGetFile(S.db.gc, ext==='pdf' ? i.pdfPath : i.xmlPath); saveBlob(invFileName(i, ext), new Blob([buf], { type: ext==='pdf' ? 'application/pdf' : 'text/xml' })); }
+    catch(e){ toast('No se pudo descargar: ' + e.message, true); } },
+  fxaddpdf: el => { const i = S.invoices[el.dataset.id]; if (!i || !hasRepo()) return;
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.pdf,application/pdf';
+    inp.onchange = async () => { const f = inp.files[0]; if (!f) return;
+      const path = (i.xmlPath || `facturas/${i.emisorRfc}/${i.fecha.slice(0,4)}/${i.fecha.slice(5,7)}/${i.uuid}.xml`).replace(/\.xml$/, '.pdf');
+      try { await ghPutFile(S.db.gc, path, await f.arrayBuffer(), `Factura ${i.uuid}: PDF`); await dbUpdate('invoices', i.id, { pdfPath: path }); toast('PDF agregado'); }
+      catch(e){ toast('No se pudo subir el PDF: ' + e.message, true); } };
+    inp.click(); },
+  fxdecl: async el => { const ym = el.dataset.ym, on = el.dataset.v==='1';
+    const meses = Object.assign({}, S.fcfg.meses); meses[ym] = Object.assign({}, meses[ym], { declarada: on ? todayS() : '' });
+    await saveFcfg({ meses }); }
+});
+async function saveFcfg(patch){
+  const doc = Object.assign({}, S.fcfg, patch);
+  return dbSet('config', 'fiscal', doc);
+}
+document.addEventListener('change', async e => {
+  const t = e.target;
+  if (t.id==='fx-ym' && t.value){ S.factYm = t.value; renderMain(); return; }
+  if (t.dataset && t.dataset.fx){
+    const c = allCobros().find(x => x.id===t.dataset.id); if (!c) return;
+    if (t.dataset.fx==='forma') await saveCobroMeta(c, { formaPago: t.value });
+    if (t.dataset.fx==='fecha' && /^\d{4}-\d{2}-\d{2}$/.test(t.value)) await saveCobroMeta(c, { fecha: t.value });
+    if (t.dataset.fx==='pide'){ await saveCobroMeta(c, { pideFactura: t.checked }); if (t.checked && !c.clientId) openFxPickClient(c.id); }
+    return;
+  }
+  if (t.id==='fx-acred'){ const v = t.value===''? '' : Math.max(0, Number(t.value)||0); const meses = Object.assign({}, S.fcfg.meses); meses[t.dataset.ym] = Object.assign({}, meses[t.dataset.ym], { ivaAcred: v }); await saveFcfg({ meses }); }
+});
+document.addEventListener('input', e => {
+  if (e.target.id==='fx-cli-q'){ S.fxCliQ = e.target.value; const pos = e.target.selectionStart; renderMain(); const q = $('#fx-cli-q'); if (q){ q.focus(); q.setSelectionRange(pos,pos); } }
+});
+document.addEventListener('submit', async e => {
+  const f = e.target;
+  if (!f.id || !f.id.startsWith('fx-')) return;
+  e.preventDefault();
+  if (f.id==='fx-pin-new'){
+    const a = $('#fx-pin1').value, b = $('#fx-pin2').value, err = $('#fx-pin-err');
+    if (!/^\d{6}$/.test(a)) return err.textContent = 'El PIN debe tener exactamente 6 dígitos.';
+    if (a !== b) return err.textContent = 'Los PIN no coinciden.';
+    if (/^(\d)\1{5}$/.test(a) || '0123456789'.includes(a) || '9876543210'.includes(a)) return err.textContent = 'Elige un PIN menos obvio (no repetidos ni consecutivos).';
+    const salt = hex(crypto.getRandomValues(new Uint8Array(16)).buffer), iter = 150000;
+    if (await dbSet('config', 'factpin', { salt, iter, hash: await pbkdf2(a, salt, iter), setAt: new Date().toISOString() })){ S.factUnlock = true; toast('PIN guardado'); }
+  }
+  if (f.id==='fx-pin-form'){
+    const p = S.factPin, err = $('#fx-pin-err'), v = $('#fx-pin').value;
+    if (pinLocked() || !p) return;
+    const ok = (await pbkdf2(v, p.salt, p.iter)) === p.hash;
+    if (ok){ lsSet('ia-fact-lock', null); S.factUnlock = true; renderMain(); return; }
+    const l = lsGet('ia-fact-lock') || { fails:0, until:0 };
+    l.fails = (l.fails||0) + 1; if (l.fails >= 5){ l.until = Date.now() + 5*60e3; l.fails = 0; }
+    lsSet('ia-fact-lock', l);
+    if (l.until > Date.now()) renderMain(); else err.textContent = 'PIN incorrecto.';
+  }
+  if (f.id==='fx-pin-chg'){
+    const p = S.factPin, err = $('#fx-pc-err'), cur = $('#fx-pc-cur').value, nw = $('#fx-pc-new').value;
+    if ((await pbkdf2(cur, p.salt, p.iter)) !== p.hash) return err.textContent = 'El PIN actual no es correcto.';
+    if (!/^\d{6}$/.test(nw)) return err.textContent = 'El PIN nuevo debe tener 6 dígitos.';
+    if (/^(\d)\1{5}$/.test(nw) || '0123456789'.includes(nw) || '9876543210'.includes(nw)) return err.textContent = 'Elige un PIN menos obvio.';
+    const salt = hex(crypto.getRandomValues(new Uint8Array(16)).buffer), iter = 150000;
+    if (await dbSet('config', 'factpin', { salt, iter, hash: await pbkdf2(nw, salt, iter), setAt: new Date().toISOString() })){ toast('PIN actualizado'); f.reset(); err.textContent = ''; }
+  }
+  if (f.id==='fx-cfg'){
+    const err = $('#fx-cfg-err'); err.textContent = '';
+    const rfc = $('#fx-e-rfc').value.trim().toUpperCase(), cp = $('#fx-e-cp').value.trim(), clave = $('#fx-clave').value.trim();
+    if (rfc && rfcTipo(rfc)!=='pf') return err.textContent = 'El RFC del emisor debe ser de persona física (13 caracteres).';
+    if (cp && !/^\d{5}$/.test(cp)) return err.textContent = 'El código postal debe tener 5 dígitos.';
+    if (clave && !/^\d{8}$/.test(clave)) return err.textContent = 'La clave de producto o servicio tiene 8 dígitos.';
+    const doc = { emisor: { rfc, cp, nombre: $('#fx-e-nom').value.trim().replace(/\s+/g,' ').toUpperCase(), regimen: $('#fx-e-reg').value },
+      claveProdServ: clave, claveUnidad: $('#fx-uni').value.trim().toUpperCase() || 'E48', serie: $('#fx-serie').value.trim().toUpperCase(),
+      conceptoTpl: $('#fx-ctpl').value.trim() || DEFAULT_FCFG.conceptoTpl, tplCorreo: $('#fx-tcorreo').value, tplWa: $('#fx-twa').value, tplDatos: $('#fx-tdatos').value };
+    if (await saveFcfg(doc)) toast('Configuración de facturación guardada');
+  }
+});
+/* Las ventanas de facturación piden el PIN aunque se abran desde otra pestaña */
+for (const k of Object.keys(ACT).filter(k => k.startsWith('fx') && !['fxlock','fxcopy','fxgoto'].includes(k))){
+  const fn = ACT[k];
+  ACT[k] = (el, e) => {
+    if (!S.factPin || !factUnlocked()){ closeModal(); go('facturas'); toast('Escribe el PIN de facturación para continuar.'); return; }
+    return fn(el, e);
+  };
+}
+ACT.fxgoto = el => { closeModal(); if (el.dataset.ym) S.factYm = el.dataset.ym; S.factTab = 'cobros'; go('facturas'); };
+/* Línea “Factura” en la ventana de una reserva pagada */
+function fxBookingStatus(b){
+  if (!b.paidAt || !FACT_COLS.every(c => S.loaded[c])) return '';
+  const ym = (S.cobros[b.id] && S.cobros[b.id].fecha || isoLocal(b.paidAt)).slice(0,7);
+  const btn = `<button class="btn sm" data-act="fxgoto" data-ym="${ym}">Ver en Facturación</button>`;
+  if (!factUnlocked()) return btn;
+  const c = allCobros().find(x => x.id===b.id);
+  return c ? `${ESTADO_CHIP[cobroEstado(c).k]} ${btn}` : btn;
+}
 
 /* =====================================================================
    ARRANQUE
