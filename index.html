@@ -738,10 +738,10 @@ function subscribeData(){
 }
 function subscribeConfig(){
   S.subs.push(S.db.collection('config').onSnapshot(snap => {
-    let auth = null, main = null, alerts = null, fiscal = null, factpin = null;
-    snap.docs.forEach(d => { if (d.id==='auth') auth = d.data(); if (d.id==='main') main = d.data(); if (d.id==='alerts') alerts = d.data(); if (d.id==='fiscal') fiscal = d.data(); if (d.id==='factpin') factpin = d.data(); });
+    let auth = null, main = null, alerts = null, fiscal = null;
+    snap.docs.forEach(d => { if (d.id==='auth') auth = d.data(); if (d.id==='main') main = d.data(); if (d.id==='alerts') alerts = d.data(); if (d.id==='fiscal') fiscal = d.data(); });
     S.auth = auth; S.cfg = mergeCfg(main); S.alertsDone = (alerts && alerts.done) || {};
-    S.fcfg = mergeFcfg(fiscal); S.factPin = factpin;
+    S.fcfg = mergeFcfg(fiscal);
     S.memo = {};
     if (S.logged) onData(); else if (!loginRendered) renderLogin();
   }, err => renderLogin('No se pudo leer la configuración. Recarga la página.')));
@@ -891,7 +891,7 @@ function enterApp(){
   renderShell();
 }
 function logout(){
-  ssSet('ia-sess', null); memSession = null; S.logged = false; S.factUnlock = false; S.fxFiles = {}; closeModal(); renderLogin();
+  ssSet('ia-sess', null); memSession = null; S.logged = false; S.fxFiles = {}; closeModal(); renderLogin();
 }
 setInterval(() => { if (S.logged && !sessionValid()) { logout(); toast('Sesión cerrada por inactividad'); } }, 60e3);
 let lastTouch = 0;
@@ -2166,7 +2166,7 @@ setInterval(() => { if (S.logged){ S.memo = {}; renderTabs(); if (S.view==='aler
                  cliente y folio de nota; la llave es el id de la reserva.
                  También guarda cobros que no vienen de la agenda (manual:true)
        invoices  facturas emitidas (individuales y globales)
-       config/fiscal   datos del emisor y textos; config/factpin   PIN
+       config/fiscal   datos del emisor y textos
    ===================================================================== */
 const FACT_COLS = ['fiscal','invoices','cobros'];
 const DEFAULT_FCFG = {
@@ -2202,7 +2202,7 @@ const FX_TASAS = [[2500000,1.00],[5000000,1.10],[8333333,1.50],[20833333,2.00],[
 const FX_LIMITE_ANUAL = 350000000; /* $3,500,000.00 en centavos */
 const FX_GLOBAL = { rfc:'XAXX010101000', nombre:'PUBLICO EN GENERAL', regimen:'616', uso:'S01', clave:'01010101', unidad:'ACT', desc:'Venta', periodicidad:'04' };
 
-Object.assign(S, { fiscal:{}, invoices:{}, cobros:{}, fcfg: structuredClone(DEFAULT_FCFG), factPin:null, factUnlock:false, fxFiles:{},
+Object.assign(S, { fiscal:{}, invoices:{}, cobros:{}, fcfg: structuredClone(DEFAULT_FCFG), fxFiles:{},
   factTab:'cobros', factYm: todayS().slice(0,7), fxInvFilter:'todas', fxCliQ:'' });
 FACT_COLS.forEach(c => S.loaded[c] = false);
 
@@ -2502,47 +2502,22 @@ function compareCfdi(x, exp){
   return { errs, warns, oks };
 }
 
-/* ---------- PIN de facturación ---------- */
-const factUnlocked = () => !!(S.factUnlock && sessionValid());
-function pinLocked(){ const l = lsGet('ia-fact-lock'); return l && l.until > Date.now() ? l : null; }
-
 /* =====================================================================
    VISTA
    ===================================================================== */
 const FX_TABS = [['cobros','Cobros'],['global','Factura global'],['facturas','Facturas emitidas'],['clientes','Datos fiscales'],['resumen','Resumen del mes'],['config','Configuración']];
 function viewFact(){
   if (!FACT_COLS.every(c => S.loaded[c])) return `<div class="empty">Cargando facturación…</div>`;
-  if (!S.factPin) return fxPinSetup();
-  if (!factUnlocked()) return fxPinAsk();
   const tab = FX_TABS.some(t => t[0]===S.factTab) ? S.factTab : 'cobros';
   const monthPick = ['cobros','global','resumen'].includes(tab) ? `<div class="row"><button class="btn sm" data-act="fxym" data-n="-1" aria-label="Mes anterior">‹</button><input type="month" id="fx-ym" value="${S.factYm}" style="width:auto"><button class="btn sm" data-act="fxym" data-n="1" aria-label="Mes siguiente">›</button></div>` : '';
   const emiErr = checkEmisor();
   const body = { cobros:fxCobros, global:fxGlobal, facturas:fxFacturas, clientes:fxClientes, resumen:fxResumen, config:fxConfig }[tab]();
-  return `<div class="toolbar"><h2>Facturación</h2><div class="row">${monthPick}<button class="btn sm ghost" data-act="fxlock">Bloquear</button></div></div>
+  return `<div class="toolbar"><h2>Facturación</h2><div class="row">${monthPick}</div></div>
     <div class="seg" style="margin-bottom:14px;flex-wrap:wrap">${FX_TABS.map(([k,l]) => `<button data-act="fxtab" data-t="${k}" aria-pressed="${tab===k}">${l}</button>`).join('')}</div>
     ${emiErr.length && tab!=='config' ? `<div class="note warn" style="margin-bottom:12px">Antes de facturar completa en <button class="btn sm" data-act="fxtab" data-t="config">Configuración</button>: ${esc(emiErr.join(', '))}.</div>` : ''}
     ${!hasRepo() ? `<div class="note warn" style="margin-bottom:12px">Sin GitHub conectado, la app guarda los datos de las facturas pero no los archivos XML y PDF ni puede enviarlos por correo.</div>` : ''}
     ${body}`;
 }
-function fxPinSetup(){
-  return `<h2>Facturación</h2><form class="panel stack" id="fx-pin-new" style="margin-top:12px;max-width:440px" novalidate>
-    <h3>Crea el PIN de facturación</h3>
-    <p class="small muted" style="margin:0">Esta sección tiene RFC y datos fiscales de las familias. El PIN es un segundo candado para que solo administración entre aquí. Usa 6 dígitos que no sean la contraseña de la agenda.</p>
-    <div class="field"><label for="fx-pin1">PIN (6 dígitos)</label><input id="fx-pin1" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6"></div>
-    <div class="field"><label for="fx-pin2">Repetir PIN</label><input id="fx-pin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6"></div>
-    <div class="err" id="fx-pin-err" role="alert"></div>
-    <button class="btn primary" type="submit">Guardar PIN</button></form>`;
-}
-function fxPinAsk(){
-  const l = pinLocked();
-  return `<h2>Facturación</h2><form class="panel stack" id="fx-pin-form" style="margin-top:12px;max-width:380px" novalidate>
-    <h3>Escribe el PIN de facturación</h3>
-    <div class="field"><label for="fx-pin">PIN</label><input id="fx-pin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" ${l?'disabled':''}></div>
-    <div class="err" id="fx-pin-err" role="alert">${l ? `Demasiados intentos. Intenta de nuevo a las ${hm(new Date(l.until))}.` : ''}</div>
-    <button class="btn primary" type="submit" ${l?'disabled':''}>Entrar</button>
-    <p class="small muted" style="margin:0">¿Olvidaste el PIN? El dueño de la agenda puede borrarlo en GitHub (archivo data/agenda.json, config → factpin) o pídemelo y te indico cómo.</p></form>`;
-}
-
 /* ---------- Cobros ---------- */
 function fxCobros(){
   const ym = S.factYm, list = cobrosDe(ym);
@@ -2767,11 +2742,7 @@ function fxConfig(){
         <p class="small muted" style="margin:0">Si un envío falla, en “Ver envíos” abre el más reciente: el error dice qué revisar. Opcionales en los secretos: FACT_BCC (copia oculta de cada factura) y FACT_SMTP_USER / FACT_SMTP_HOST / FACT_SMTP_PORT si algún día cambias de cuenta o de proveedor.</p>`
         : '<div class="note warn">Conecta GitHub en Ajustes para guardar los archivos y enviarlos por correo.</div>'}
       </div>
-      <form class="panel stack" id="fx-pin-chg" novalidate><h3>Cambiar PIN de facturación</h3>
-        <div class="field"><label for="fx-pc-cur">PIN actual</label><input id="fx-pc-cur" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></div>
-        <div class="field"><label for="fx-pc-new">PIN nuevo (6 dígitos)</label><input id="fx-pc-new" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></div>
-        <div class="err" id="fx-pc-err" role="alert"></div>
-        <button class="btn" type="submit">Cambiar PIN</button></form>
+
     </div></div>`;
 }
 
@@ -3139,7 +3110,6 @@ function fxCsv(){
 Object.assign(ACT, {
   fxtab: el => { S.factTab = el.dataset.t; renderMain(); },
   fxym: el => { const n = +el.dataset.n; S.factYm = n > 0 ? ymNext(S.factYm) : ymPrev(S.factYm); renderMain(); },
-  fxlock: () => { S.factUnlock = false; renderMain(); },
   fxcopy: el => copyText(el.dataset.v),
   fxguide: el => openFxGuide(el.dataset.id),
   fxreg: el => openFxRegister(el.dataset.kind, (el.dataset.ids||'').split(','), el.dataset.ym || S.factYm),
@@ -3201,32 +3171,6 @@ document.addEventListener('submit', async e => {
   const f = e.target;
   if (!f.id || !f.id.startsWith('fx-')) return;
   e.preventDefault();
-  if (f.id==='fx-pin-new'){
-    const a = $('#fx-pin1').value, b = $('#fx-pin2').value, err = $('#fx-pin-err');
-    if (!/^\d{6}$/.test(a)) return err.textContent = 'El PIN debe tener exactamente 6 dígitos.';
-    if (a !== b) return err.textContent = 'Los PIN no coinciden.';
-    if (/^(\d)\1{5}$/.test(a) || '0123456789'.includes(a) || '9876543210'.includes(a)) return err.textContent = 'Elige un PIN menos obvio (no repetidos ni consecutivos).';
-    const salt = hex(crypto.getRandomValues(new Uint8Array(16)).buffer), iter = 150000;
-    if (await dbSet('config', 'factpin', { salt, iter, hash: await pbkdf2(a, salt, iter), setAt: new Date().toISOString() })){ S.factUnlock = true; toast('PIN guardado'); }
-  }
-  if (f.id==='fx-pin-form'){
-    const p = S.factPin, err = $('#fx-pin-err'), v = $('#fx-pin').value;
-    if (pinLocked() || !p) return;
-    const ok = (await pbkdf2(v, p.salt, p.iter)) === p.hash;
-    if (ok){ lsSet('ia-fact-lock', null); S.factUnlock = true; renderMain(); return; }
-    const l = lsGet('ia-fact-lock') || { fails:0, until:0 };
-    l.fails = (l.fails||0) + 1; if (l.fails >= 5){ l.until = Date.now() + 5*60e3; l.fails = 0; }
-    lsSet('ia-fact-lock', l);
-    if (l.until > Date.now()) renderMain(); else err.textContent = 'PIN incorrecto.';
-  }
-  if (f.id==='fx-pin-chg'){
-    const p = S.factPin, err = $('#fx-pc-err'), cur = $('#fx-pc-cur').value, nw = $('#fx-pc-new').value;
-    if ((await pbkdf2(cur, p.salt, p.iter)) !== p.hash) return err.textContent = 'El PIN actual no es correcto.';
-    if (!/^\d{6}$/.test(nw)) return err.textContent = 'El PIN nuevo debe tener 6 dígitos.';
-    if (/^(\d)\1{5}$/.test(nw) || '0123456789'.includes(nw) || '9876543210'.includes(nw)) return err.textContent = 'Elige un PIN menos obvio.';
-    const salt = hex(crypto.getRandomValues(new Uint8Array(16)).buffer), iter = 150000;
-    if (await dbSet('config', 'factpin', { salt, iter, hash: await pbkdf2(nw, salt, iter), setAt: new Date().toISOString() })){ toast('PIN actualizado'); f.reset(); err.textContent = ''; }
-  }
   if (f.id==='fx-cfg'){
     const err = $('#fx-cfg-err'); err.textContent = '';
     const rfc = $('#fx-e-rfc').value.trim().toUpperCase(), cp = $('#fx-e-cp').value.trim(), clave = $('#fx-clave').value.trim();
@@ -3239,21 +3183,12 @@ document.addEventListener('submit', async e => {
     if (await saveFcfg(doc)) toast('Configuración de facturación guardada');
   }
 });
-/* Las ventanas de facturación piden el PIN aunque se abran desde otra pestaña */
-for (const k of Object.keys(ACT).filter(k => k.startsWith('fx') && !['fxlock','fxcopy','fxgoto'].includes(k))){
-  const fn = ACT[k];
-  ACT[k] = (el, e) => {
-    if (!S.factPin || !factUnlocked()){ closeModal(); go('facturas'); toast('Escribe el PIN de facturación para continuar.'); return; }
-    return fn(el, e);
-  };
-}
 ACT.fxgoto = el => { closeModal(); if (el.dataset.ym) S.factYm = el.dataset.ym; S.factTab = 'cobros'; go('facturas'); };
 /* Línea “Factura” en la ventana de una reserva pagada */
 function fxBookingStatus(b){
   if (!b.paidAt || !FACT_COLS.every(c => S.loaded[c])) return '';
   const ym = (S.cobros[b.id] && S.cobros[b.id].fecha || isoLocal(b.paidAt)).slice(0,7);
   const btn = `<button class="btn sm" data-act="fxgoto" data-ym="${ym}">Ver en Facturación</button>`;
-  if (!factUnlocked()) return btn;
   const c = allCobros().find(x => x.id===b.id);
   return c ? `${ESTADO_CHIP[cobroEstado(c).k]} ${btn}` : btn;
 }
