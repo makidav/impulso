@@ -2346,16 +2346,27 @@ const ESTADO_CHIP = {
 const cobrosDe = ym => allCobros().filter(c => c.fecha.slice(0,7) === ym);
 function factPendientes(){
   if (!S.loaded.cobros || !S.loaded.invoices) return 0;
+  return factPendDetalle().reduce((t, p) => t + p.cuenta, 0);
+}
+/* Qué cuenta el número rojo de la pestaña, agrupado por mes (para explicarlo en pantalla) */
+function factPendDetalle(){
   const cur = todayS().slice(0,7);
-  let n = 0;
-  const mesesSinGlobal = new Set();
+  const m = {};
+  const g = ym => (m[ym] = m[ym] || { ym, porFacturar:0, dup:0, global:0 });
   for (const c of allCobros()){
     if (c.cancelada || !c.monto) continue;
-    const e = cobroEstado(c).k;
-    if (e==='porFacturar' || e==='dup') n++;
-    if (e==='paraGlobal' && c.fecha.slice(0,7) < cur) mesesSinGlobal.add(c.fecha.slice(0,7));
+    const e = cobroEstado(c).k, ym = c.fecha.slice(0,7);
+    if (e==='porFacturar') g(ym).porFacturar++;
+    if (e==='dup') g(ym).dup++;
+    if (e==='paraGlobal' && ym < cur) g(ym).global++;
   }
-  return n + mesesSinGlobal.size;
+  return Object.values(m).sort((a,b) => a.ym < b.ym ? -1 : 1).map(x => Object.assign(x, { cuenta: x.porFacturar + x.dup + (x.global ? 1 : 0) }));
+}
+function fxPendNote(){
+  const list = factPendDetalle();
+  if (!list.length) return '';
+  const txt = x => [x.global ? `falta registrar la factura global (${x.global} pago${x.global>1?'s':''})` : '', x.porFacturar ? `${x.porFacturar} pago(s) por facturar a nombre del tutor` : '', x.dup ? `${x.dup} pago(s) en dos facturas` : ''].filter(Boolean).join(' · ');
+  return `<div class="note warn" style="margin-bottom:12px"><b>Pendientes (el número rojo de la pestaña):</b><ul style="margin:4px 0 0;padding-left:18px">${list.map(x => `<li>${ymLabel(x.ym)}: ${txt(x)} <button class="btn sm" data-act="fxgoto" data-ym="${x.ym}" data-t="${x.global && !x.porFacturar && !x.dup ? 'global' : 'cobros'}">Ver</button></li>`).join('')}</ul></div>`;
 }
 async function saveCobroMeta(c, patch){
   const d = Object.assign({}, S.cobros[c.id] || {}, patch);
@@ -2519,6 +2530,7 @@ function viewFact(){
   return `<div class="toolbar"><h2>Facturación</h2><div class="row">${monthPick}</div></div>
     <div class="seg" style="margin-bottom:14px;flex-wrap:wrap">${FX_TABS.map(([k,l]) => `<button data-act="fxtab" data-t="${k}" aria-pressed="${tab===k}">${l}</button>`).join('')}</div>
     ${emiErr.length && tab!=='config' ? `<div class="note warn" style="margin-bottom:12px">Antes de facturar completa en <button class="btn sm" data-act="fxtab" data-t="config">Configuración</button>: ${esc(emiErr.join(', '))}.</div>` : ''}
+    ${tab!=='config' ? fxPendNote() : ''}
     ${!hasRepo() ? `<div class="note warn" style="margin-bottom:12px">Sin GitHub conectado, la app guarda los datos de las facturas pero no los archivos XML y PDF ni puede enviarlos por correo.</div>` : ''}
     ${body}`;
 }
@@ -3183,7 +3195,7 @@ document.addEventListener('submit', async e => {
     if (await saveFcfg(doc)) toast('Configuración de facturación guardada');
   }
 });
-ACT.fxgoto = el => { closeModal(); if (el.dataset.ym) S.factYm = el.dataset.ym; S.factTab = 'cobros'; go('facturas'); };
+ACT.fxgoto = el => { closeModal(); if (el.dataset.ym) S.factYm = el.dataset.ym; S.factTab = el.dataset.t || 'cobros'; go('facturas'); };
 /* Línea “Factura” en la ventana de una reserva pagada */
 function fxBookingStatus(b){
   if (!b.paidAt || !FACT_COLS.every(c => S.loaded[c])) return '';
