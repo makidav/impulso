@@ -243,6 +243,8 @@ pre.report{white-space:pre-wrap;background:var(--surface-2);border-radius:var(--
 .kv dd.err{color:var(--bad)}
 .kpi[role="button"]{cursor:pointer}
 table.list select{padding:5px 6px;font-size:.82rem;min-width:130px}
+.btn.xdel{color:var(--bad)}
+.btn.xdel:hover{background:color-mix(in srgb, var(--bad) 10%, transparent)}
 </style>
 </head>
 <body>
@@ -1644,6 +1646,7 @@ function openBooking(id, fallback){
       ${b.type==='impulso' && b.status==='conf' && !ren ? `<button class="btn sun" data-act="renew" data-id="${b.id}">Renovar</button>` : ''}
       ${b.type==='repo' && b.status==='desplazada' ? `<button class="btn rose" data-act="newtut" data-stu="${b.studentId}" data-type="repo">Reprogramar</button>` : ''}
       <button class="btn" data-act="student" data-id="${b.studentId}">Ver alumno</button>
+      <button class="btn ghost xdel" data-act="xdelbk" data-id="${b.id}">Eliminar</button>
       <button class="btn primary" id="bk-save-notes">Guardar notas</button>`;
     const pc = $('#bk-paid');
     if (pc){
@@ -1787,7 +1790,8 @@ function openStudent(id){
        <button class="btn" data-act="addwait" data-id="${id}">Agregar a lista de espera</button>
        <button class="btn sun" data-act="newimp" data-stu="${id}">Reserva Impulso</button>
        <button class="btn rose" data-act="newtut" data-stu="${id}">Tutoría</button>
-       <button class="btn" data-act="fxcli" data-id="${defaultClientId(id)}" data-stu="${id}">Datos de facturación</button>` : ''}
+       <button class="btn" data-act="fxcli" data-id="${defaultClientId(id)}" data-stu="${id}">Datos de facturación</button>
+       <button class="btn ghost xdel" data-act="xdelstu" data-id="${id}">Eliminar alumno</button>` : ''}
      <button class="btn primary" id="st-save">Guardar</button>`, { wide:true });
   $('#m-body').addEventListener('change', e => { const k = e.target.dataset.pref; if (!k) return; const l = e.target.closest('.pk'); l.classList.toggle('on', e.target.checked); l.querySelector('span').textContent = e.target.checked ? 'Sí' : '·'; });
   $('#st-save').onclick = async () => {
@@ -1832,7 +1836,7 @@ function openWaitForm(studentId, waitId){
     </tbody></table></div></div>
     <div class="field"><label for="wf-note">Nota (opcional)</label><input id="wf-note" type="text" value="${esc(w?.note||'')}" placeholder="Ej. acepta cualquier tarde"></div>
     <div class="err" id="wf-err" role="alert"></div>`,
-    `<button class="btn" data-act="close">Cancelar</button><button class="btn primary" id="wf-save">Guardar</button>`, { wide:true });
+    `${w ? `<button class="btn ghost xdel" data-act="xdelwait" data-id="${waitId}">Eliminar</button>` : ''}<button class="btn" data-act="close">Cancelar</button><button class="btn primary" id="wf-save">Guardar</button>`, { wide:true });
   $('#wf-stu').onchange = e => { $('#wf-new').hidden = e.target.value!=='__new'; };
   $('#m-body').addEventListener('change', e => { const k = e.target.dataset.ws; if (!k) return; const l = e.target.closest('.pk'); l.classList.toggle('on', e.target.checked); l.querySelector('span').textContent = e.target.checked ? 'Sí' : '·'; });
   $('#wf-save').onclick = async () => {
@@ -2785,7 +2789,7 @@ function openFxClient(id, opts={}){
     <div class="field"><label for="fxc-notes">Notas</label><textarea id="fxc-notes">${esc(c.notes||'')}</textarea></div>
     <div id="fxc-check"></div>`,
     `${(s0 && s0.phone) || c.phone ? waBtn(c.phone || s0.phone, fill(S.fcfg.tplDatos, { tutor: (s0 && s0.tutor) || '' }), 'Pedir datos por WhatsApp', false) : ''}
-     ${id ? `<button class="btn danger" id="fxc-del">Borrar</button>` : ''}
+     ${id ? `<button class="btn ghost xdel" data-act="xdelcli" data-id="${id}">Eliminar</button>` : ''}
      <button class="btn primary" id="fxc-save">Guardar</button>`, { wide:true });
   render();
   $('#m-body').addEventListener('input', render);
@@ -2803,11 +2807,6 @@ function openFxClient(id, opts={}){
       if (opts.cobroId){ const cb = allCobros().find(x => x.id===opts.cobroId); if (cb) await saveCobroMeta(cb, { clientId: fid, pideFactura: true }); }
       closeModal();
     }
-  };
-  const del = $('#fxc-del');
-  if (del) del.onclick = () => {
-    if (vigentes().some(i => i.clientId===id)) return toast('Tiene facturas registradas: no se puede borrar.', true);
-    askConfirm('¿Borrar estos datos fiscales?', 'Borrar', async () => { if (await dbDelete('fiscal', id)){ toast('Borrado'); closeModal(); } });
   };
 }
 
@@ -2834,7 +2833,7 @@ function openFxCobro(id){
     </div>
     <div class="field"><label for="fxm-c">Concepto</label><input id="fxm-c" type="text" value="${esc(m.concepto)}" placeholder="Ej. Inscripción ciclo 2026-2027"></div>
     <label class="row"><input type="checkbox" id="fxm-p" ${m.pideFactura?'checked':''}> Pidió factura a su nombre</label>`,
-    `${id ? '<button class="btn danger" id="fxm-del">Borrar</button>' : ''}<button class="btn primary" id="fxm-save">Guardar</button>`);
+    `${id ? `<button class="btn ghost xdel" data-act="xdelcob" data-id="${id}">Eliminar</button>` : ''}<button class="btn primary" id="fxm-save">Guardar</button>`);
   $('#fxm-save').onclick = async () => {
     const monto = Number($('#fxm-m').value);
     if (!$('#fxm-f').value) return toast('Elige la fecha de cobro.', true);
@@ -2845,8 +2844,6 @@ function openFxCobro(id){
     if (doc.pideFactura && !doc.clientId) doc.clientId = defaultClientId(doc.studentId);
     if (await dbSet('cobros', id || newId('cobros'), doc)){ toast('Cobro guardado'); closeModal(); }
   };
-  const del = $('#fxm-del');
-  if (del) del.onclick = () => askConfirm('¿Borrar este cobro?', 'Borrar', async () => { if (await dbDelete('cobros', id)){ toast('Cobro borrado'); closeModal(); } });
 }
 
 /* Guía de llenado de una factura individual */
@@ -2973,7 +2970,8 @@ function openFxInvoice(id, fallback){
       ${ck.warns.length && i.status!=='cancelada' ? `<div class="note warn"><ul style="margin:0;padding-left:18px">${ck.warns.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
       <div class="row">${i.xmlPath ? `<button class="btn" data-act="fxdl" data-id="${i.id}" data-ext="xml">Descargar XML</button>` : '<span class="small muted">XML no guardado en el repositorio.</span>'}${i.pdfPath ? `<button class="btn" data-act="fxdl" data-id="${i.id}" data-ext="pdf">Descargar PDF</button>` : `<button class="btn sm" data-act="fxaddpdf" data-id="${i.id}" ${hasRepo()?'':'disabled'}>Agregar PDF</button>`}</div>`;
     const canSend = i.status!=='cancelada' && i.kind!=='global';
-    $('#m-foot').innerHTML = `${i.status!=='cancelada' ? `<button class="btn danger" data-act="fxcancel" data-id="${i.id}">Marcar como cancelada</button>` : ''}
+    $('#m-foot').innerHTML = `<button class="btn ghost xdel" data-act="xdelinv" data-id="${i.id}">Eliminar registro</button>
+      ${i.status!=='cancelada' ? `<button class="btn danger" data-act="fxcancel" data-id="${i.id}">Marcar como cancelada</button>` : ''}
       ${canSend ? `<button class="btn wa" data-act="fxwa" data-id="${i.id}">Enviar por WhatsApp</button><button class="btn primary" data-act="fxmail" data-id="${i.id}" ${i.xmlPath && hasRepo()?'':'disabled'}>Enviar por correo</button>` : ''}`;
   };
   openModal('Factura', '', '<span></span>', { wide:true, refresh: render });
@@ -3192,6 +3190,149 @@ function fxBookingStatus(b){
   const c = allCobros().find(x => x.id===b.id);
   return c ? `${ESTADO_CHIP[cobroEstado(c).k]} ${btn}` : btn;
 }
+
+/* =====================================================================
+   ELIMINAR (alumnos, reservas, lista de espera, facturas, datos fiscales y cobros)
+   Cada eliminación muestra exactamente qué se borra y pide escribir ELIMINAR.
+   ===================================================================== */
+function askDelete({ title, del = [], keep = [], warn = '', okLabel = 'Eliminar', fn }){
+  const li = a => a.length ? `<ul style="margin:4px 0 0;padding-left:18px">${a.map(x => `<li>${x}</li>`).join('')}</ul>` : '';
+  $('#confirm-root').innerHTML = `<div class="overlay"><div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="xd-t" style="width:min(480px,100%)">
+    <div class="modal-b stack" style="gap:10px">
+      <p id="xd-t" style="margin:0;font-weight:800">${title}</p>
+      ${del.length ? `<div><b>Se elimina:</b>${li(del)}</div>` : ''}
+      ${keep.length ? `<div><b>Se conserva:</b>${li(keep)}</div>` : ''}
+      ${warn ? `<div class="note warn">${warn}</div>` : ''}
+      <div class="field"><label for="xd-in">Para confirmar escribe <b>ELIMINAR</b></label><input id="xd-in" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false"></div>
+      <p class="small muted" style="margin:0">No se puede deshacer desde aquí. Si fue un error, la versión anterior queda en Ajustes → Historial de versiones y en el respaldo por correo.</p>
+    </div>
+    <div class="modal-f"><button class="btn" id="xd-no">Volver</button><button class="btn danger" id="xd-ok" disabled>${esc(okLabel)}</button></div></div></div>`;
+  const inp = $('#xd-in'), ok = $('#xd-ok');
+  const close = () => { $('#confirm-root').innerHTML = ''; };
+  inp.oninput = () => { ok.disabled = inp.value.trim().toUpperCase() !== 'ELIMINAR'; };
+  inp.onkeydown = e => { if (e.key==='Enter' && !ok.disabled) ok.click(); if (e.key==='Escape') close(); };
+  $('#xd-no').onclick = close;
+  ok.onclick = async () => {
+    if (inp.value.trim().toUpperCase() !== 'ELIMINAR') return;
+    ok.disabled = true; $('#xd-no').disabled = true; ok.textContent = 'Eliminando…';
+    try { await fn(); } finally { close(); }
+  };
+  inp.focus();
+}
+
+async function ghDeleteFile(gc, path, message){
+  const url = `/repos/${gc.owner}/${gc.repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
+  const g = await ghFetch(gc, `${url}?ref=${encodeURIComponent(gc.branch||'main')}`);
+  if (g.status===404) return false;                   // ya no existe: nada que borrar
+  if (!g.ok) throw new Error(ghErrText(g.status));
+  const j = await g.json();
+  const d = await ghFetch(gc, url, { method:'DELETE', body: JSON.stringify({ message, sha: j.sha, branch: gc.branch||'main' }) });
+  if (!d.ok && d.status!==404){ let e = null; try { e = await d.json(); } catch(x){} throw new Error(ghErrText(d.status, e)); }
+  return true;
+}
+
+const bkDesc = b => b.type==='impulso' ? `Impulso ${fmtD(b.start)} al ${fmtD(b.end)} · ${esc(fmtSlots(b.slots))}` : `${b.type==='repo'?'Reposición':'Tutoría'} ${fmtD(b.date)} · ${hourLbl(b.hour)}`;
+const pesos = n => '$' + (Number(n)||0).toLocaleString('es-MX', { minimumFractionDigits:2, maximumFractionDigits:2 });
+const invDesc = i => `${i.kind==='global' ? 'Global ' + ymLabel(i.ym) : esc(i.receptor?.nombre || '')} · ${money(i.total)} · folio ${esc((i.uuid||'').slice(0,8))}…`;
+
+function deleteBooking(id){
+  const b = S.bookings[id]; if (!b) return;
+  const inv = coverage()[id] || [];
+  if (inv.length) return toast(`Este pago está en una factura vigente (${(inv[0].uuid||'').slice(0,8)}…). Primero márcala como cancelada o elimina su registro en Facturación → Facturas emitidas.`, true);
+  const s = stu(b.studentId);
+  const keep = [];
+  const warn = [];
+  if (b.paidAt) warn.push(`Tiene un pago verificado${b.amount ? ' de ' + pesos(b.amount) : ''}: dejará de contar en Reportes y en Facturación (lo cobrado del mes).`);
+  if (b.status!=='cancel' && b.status!=='desplazada') warn.push('El lugar queda libre, igual que al cancelar. Si solo quieres liberar el lugar y conservar el historial, usa “Cancelar reserva” o “Liberar prereserva”.');
+  const ren = S.bk.filter(x => x.renewalOf===id);
+  if (ren.length) keep.push(`${ren.length} renovación(es) de este periodo (pierden el enlace al periodo anterior)`);
+  askDelete({ title: `¿Eliminar esta reserva de ${esc(labelOf(s))}?`, del: [bkDesc(b) + ' · ' + statusChip(b)], keep, warn: warn.join('<br>'), okLabel: 'Eliminar reserva',
+    fn: async () => {
+      if (!(await dbDelete('bookings', id))) return;
+      if (S.cobros[id] && !S.cobros[id].manual) await dbDelete('cobros', id);
+      closeModal(); toast('Reserva eliminada');
+    } });
+}
+
+function deleteStudent(id){
+  const s = S.students[id]; if (!s) return;
+  const bks = S.bk.filter(b => b.studentId===id);
+  const paid = bks.filter(b => b.paidAt), drop = bks.filter(b => !b.paidAt);
+  const waits = Object.entries(S.waitlist).filter(([, w]) => w.studentId===id).map(([wid]) => wid);
+  const clis = Object.values(S.fiscal).filter(f => (f.studentIds||[]).includes(id));
+  const manual = Object.values(S.cobros).filter(m => m.manual && m.studentId===id);
+  const del = [`El alumno <b>${esc(labelOf(s))}</b> (tutor ${esc(s.tutor||'—')}, WhatsApp, notas y horarios de preferencia)`];
+  if (drop.length) del.push(`${drop.length} reserva(s) sin pago (prereservas, canceladas o reposiciones)`);
+  if (waits.length) del.push(`${waits.length} registro(s) en la lista de espera`);
+  const keep = [];
+  if (paid.length) keep.push(`${paid.length} reserva(s) con pago verificado (${pesos(paid.reduce((t, b) => t + (Number(b.amount)||0), 0))}), para que no cambien Reportes ni Facturación. Aparecerán como “(alumno eliminado)”.`);
+  if (manual.length) keep.push(`${manual.length} cobro(s) fuera de la agenda`);
+  if (clis.length) keep.push(`Datos fiscales de ${clis.map(c => esc(c.nombre || c.rfc)).join(', ')} (solo se quita el vínculo con este alumno; se borran aparte en Facturación → Datos fiscales)`);
+  if (Object.values(S.invoices).some(i => (i.cobroIds||[]).some(cid => paid.some(b => b.id===cid)))) keep.push('Sus facturas registradas');
+  askDelete({ title: `¿Eliminar al alumno ${esc(labelOf(s))}?`, del, keep,
+    warn: s.active!==false ? 'Si solo dejó de venir, puedes marcarlo como <b>Inactivo</b> y conservar su historial.' : '', okLabel: 'Eliminar alumno',
+    fn: async () => {
+      for (const b of drop){ if (!(await dbDelete('bookings', b.id))) return; }
+      for (const wid of waits){ if (!(await dbDelete('waitlist', wid))) return; }
+      for (const c of clis){ const doc = Object.assign({}, S.fiscal[c.id], { studentIds: (c.studentIds||[]).filter(x => x!==id) }); delete doc.id; if (!(await dbSet('fiscal', c.id, doc))) return; }
+      if (!(await dbDelete('students', id))) return;
+      closeModal(); toast('Alumno eliminado');
+    } });
+}
+
+function deleteWait(id){
+  const w = S.waitlist[id]; if (!w) return;
+  askDelete({ title: `¿Eliminar de la lista de espera a ${esc(labelOf(stu(w.studentId)))}?`, del: [`Horarios que buscaba: ${esc(fmtSlots(w.slots))}`],
+    warn: w.status==='activa' ? 'Si solo quieres sacarlo de la lista, “Quitar” hace lo mismo y deja el registro.' : '', okLabel: 'Eliminar',
+    fn: async () => { if (await dbDelete('waitlist', id)){ closeModal(); toast('Eliminado de la lista de espera'); } } });
+}
+
+function deleteInvoice(id){
+  const i = S.invoices[id]; if (!i) return;
+  const files = [i.xmlPath, i.pdfPath].filter(Boolean);
+  if (files.length && !hasRepo()) return toast('Para borrar también el XML y el PDF hace falta la conexión con GitHub.', true);
+  const del = [`El registro de la factura: ${invDesc(i)}`];
+  if (files.length) del.push(`Sus archivos en GitHub: ${files.map(f => esc(f.split('/').pop())).join(' y ')}`);
+  const keep = [];
+  if ((i.cobroIds||[]).length) keep.push(`${i.cobroIds.length} pago(s) que amparaba: vuelven a quedar ${i.kind==='global' ? 'para la factura global' : 'por facturar'}`);
+  askDelete({ title: '¿Eliminar el registro de esta factura?', del, keep,
+    warn: i.status==='cancelada' ? 'Ya está marcada como cancelada.' : '<b>Esto no cancela la factura en el SAT.</b> Si es una factura real, ante el SAT sigue vigente: cancélala en el portal del SAT antes. Úsalo para facturas de prueba o registradas por error.',
+    okLabel: 'Eliminar factura',
+    fn: async () => {
+      try { for (const f of files) await ghDeleteFile(S.db.gc, f, `Factura ${i.uuid}: eliminar ${f.split('.').pop().toUpperCase()}`); }
+      catch(e){ toast('No se pudo borrar el archivo: ' + e.message + ' No se eliminó el registro.', true); return; }
+      if (await dbDelete('invoices', id)){ delete S.fxFiles[id]; closeModal(); toast('Registro de factura eliminado'); }
+    } });
+}
+
+function deleteClient(id){
+  const c = S.fiscal[id]; if (!c) return;
+  const n = Object.values(S.invoices).filter(i => i.clientId===id).length;
+  if (n) return toast(`Tiene ${n} factura(s) registrada(s): no se puede borrar. Si eran de prueba, elimina primero esas facturas.`, true);
+  const metas = Object.entries(S.cobros).filter(([, m]) => m.clientId===id).map(([k]) => k);
+  const keep = metas.length ? [`${metas.length} pago(s) que tenían asignados estos datos: quedan sin datos fiscales (si pidieron factura, habrá que elegir otros)`] : [];
+  askDelete({ title: `¿Eliminar los datos fiscales de ${esc(c.nombre || c.rfc)}?`, del: [`RFC ${esc(c.rfc||'—')}, nombre, código postal, régimen, correo y WhatsApp`], keep, okLabel: 'Eliminar datos',
+    fn: async () => {
+      for (const k of metas){ if (!(await dbUpdate('cobros', k, { clientId: '' }))) return; }
+      if (await dbDelete('fiscal', id)){ closeModal(); toast('Datos fiscales eliminados'); }
+    } });
+}
+
+function deleteCobro(id){
+  const m = S.cobros[id]; if (!m || !m.manual) return;
+  if (coverage()[id]) return toast('Este cobro está en una factura vigente; primero márcala como cancelada o elimina su registro.', true);
+  askDelete({ title: '¿Eliminar este cobro?', del: [`${fmtDY(m.fecha)} · ${esc(m.concepto||'')} · ${pesos(m.monto)}`], warn: 'Dejará de contar en lo cobrado del mes.', okLabel: 'Eliminar cobro',
+    fn: async () => { if (await dbDelete('cobros', id)){ closeModal(); toast('Cobro eliminado'); } } });
+}
+
+Object.assign(ACT, {
+  xdelbk: el => deleteBooking(el.dataset.id),
+  xdelstu: el => deleteStudent(el.dataset.id),
+  xdelwait: el => deleteWait(el.dataset.id),
+  xdelinv: el => deleteInvoice(el.dataset.id),
+  xdelcli: el => deleteClient(el.dataset.id),
+  xdelcob: el => deleteCobro(el.dataset.id)
+});
 
 /* =====================================================================
    ARRANQUE
