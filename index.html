@@ -2543,14 +2543,16 @@ function fxCobros(){
     if (e.k==='porFacturar') acts.push(`<button class="btn sm primary" data-act="fxguide" data-id="${c.id}">Guía para el SAT</button>`, `<button class="btn sm" data-act="fxreg" data-kind="individual" data-ids="${c.id}">Registrar factura</button>`);
     if (e.k==='individual' || e.k==='global' || e.k==='dup') e.inv.forEach(i => acts.push(`<button class="btn sm" data-act="fxinv" data-id="${i.id}">${i.kind==='global'?'Ver global':'Ver factura'}</button>`));
     if (e.k==='global') acts.push(`<button class="btn sm ghost" data-act="fxnominal" data-id="${c.id}">Pidió factura después</button>`);
-    if (c.src==='manual') acts.push(`<button class="btn sm ghost" data-act="fxcobro" data-id="${c.id}">Editar</button>`);
-    if (c.src==='agenda') acts.push(`<button class="btn sm ghost" data-act="booking" data-id="${c.bookingId}">Reserva</button>`);
     const lock = e.k==='individual' || e.k==='global' || e.k==='dup';
+    if (c.src==='manual') acts.push(`<button class="btn sm ghost" data-act="fxcobro" data-id="${c.id}">Editar</button>`);
+    if (c.src==='agenda' && !lock) acts.push(`<button class="btn sm ghost" data-act="fxfix" data-id="${c.id}">Corregir monto</button>`);
+    if (c.src==='agenda') acts.push(`<button class="btn sm ghost" data-act="booking" data-id="${c.bookingId}">Reserva</button>`);
+    if (!lock) acts.push(`<button class="btn sm ghost xdel" data-act="xdelpago" data-id="${c.id}">Eliminar</button>`);
     return `<tr>
       <td class="small"><input type="date" data-fx="fecha" data-id="${c.id}" value="${c.fecha}" ${lock?'disabled':''} aria-label="Fecha de cobro" style="padding:5px 6px;font-size:.82rem;width:auto"></td>
       <td><b>${s ? esc(labelOf(s)) : '<span class="muted">Sin alumno</span>'}</b><div class="small muted">${esc(c.concepto)}</div>
         ${c.cancelada ? '<div class="small" style="color:var(--warn)">La reserva está cancelada pero tiene pago registrado. Si devolviste el dinero, no se factura.</div>' : ''}
-        ${!c.monto ? '<div class="small" style="color:var(--bad)">El pago está registrado con monto $0: corrige el monto en la reserva.</div>' : ''}</td>
+        ${!c.monto ? '<div class="small" style="color:var(--bad)">El pago está registrado con monto $0: corrígelo con “Corregir monto”.</div>' : ''}</td>
       <td style="white-space:nowrap"><b>${money(c.monto)}</b></td>
       <td><select data-fx="forma" data-id="${c.id}" ${lock?'disabled':''} aria-label="Forma de pago"><option value="">— elegir —</option>${Object.entries(FX_FORMAS).map(([k,l]) => `<option value="${k}" ${c.formaPago===k?'selected':''}>${k} ${k==='03'?'Transferencia':l}</option>`).join('')}</select></td>
       <td><label class="row small" style="gap:6px"><input type="checkbox" data-fx="pide" data-id="${c.id}" ${c.pideFactura?'checked':''} ${lock?'disabled':''}> Pidió factura</label>
@@ -3333,6 +3335,44 @@ Object.assign(ACT, {
   xdelcli: el => deleteClient(el.dataset.id),
   xdelcob: el => deleteCobro(el.dataset.id)
 });
+
+/* Corregir el monto de un pago de la agenda (el monto vive en la reserva) */
+function openFxFix(id){
+  const b = S.bookings[id]; if (!b || !b.paidAt) return;
+  if (coverage()[id]) return toast('Este pago ya está en una factura; para cambiarlo primero cancela o elimina la factura.', true);
+  openModal('Corregir monto del pago', `
+    <p class="small muted" style="margin:0">${esc(labelOf(stu(b.studentId)))} · ${bkDesc(b)}</p>
+    <div class="field"><label for="fxf-m">Monto cobrado (con IVA)</label><input id="fxf-m" type="number" min="0" step="0.01" value="${esc(b.amount ?? '')}"></div>
+    <p class="small muted" style="margin:0">La fecha de cobro y la forma de pago se cambian en la tabla de Cobros. El monto también se actualiza en Reportes.</p>`,
+    `<button class="btn" data-act="close">Cancelar</button><button class="btn primary" id="fxf-save">Guardar</button>`);
+  $('#fxf-save').onclick = async () => {
+    const m = Math.round(Number($('#fxf-m').value) * 100) / 100;
+    if (!(m > 0)) return toast('Escribe el monto cobrado.', true);
+    if (await dbUpdate('bookings', id, { amount: m })){ closeModal(); toast('Monto corregido'); }
+  };
+}
+
+/* Eliminar un pago: el de la agenda regresa la reserva a prereserva; el capturado aparte se borra */
+function deletePayment(id){
+  const c = allCobros().find(x => x.id===id); if (!c) return;
+  if (c.src==='manual') return deleteCobro(id);
+  const b = S.bookings[id]; if (!b) return;
+  const inv = coverage()[id] || [];
+  if (inv.length) return toast(`Este pago está en una factura vigente (${(inv[0].uuid||'').slice(0,8)}…). Primero márcala como cancelada o elimina su registro en Facturas emitidas.`, true);
+  askDelete({ title: '¿Eliminar este pago?',
+    del: [`El pago de ${money(c.monto)} del ${fmtDY(c.fecha)}${c.formaPago ? ' (' + (FX_FORMAS[c.formaPago]||c.formaPago) + ')' : ''} y sus datos de facturación`],
+    keep: [`La reserva de ${esc(labelOf(stu(b.studentId)))} (${bkDesc(b)}): vuelve a quedar como <b>prereserva sin pagar</b>, con su lugar apartado. Si tampoco es real, elimínala desde “Reserva”.`],
+    warn: 'Si el pago sí llegó pero con otro monto, usa “Corregir monto”; la fecha y la forma de pago se cambian en la tabla.',
+    okLabel: 'Eliminar pago',
+    fn: async () => {
+      const doc = Object.assign({}, b, { status:'pre' });
+      delete doc.id; delete doc.paidAt; delete doc.amount; delete doc.exception;
+      if (!(await dbSet('bookings', id, doc))) return;
+      if (S.cobros[id]) await dbDelete('cobros', id);
+      toast('Pago eliminado: la reserva quedó como prereserva');
+    } });
+}
+Object.assign(ACT, { fxfix: el => openFxFix(el.dataset.id), xdelpago: el => deletePayment(el.dataset.id) });
 
 /* =====================================================================
    ARRANQUE
